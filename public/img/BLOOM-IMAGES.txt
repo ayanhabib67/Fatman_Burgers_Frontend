@@ -1,0 +1,23 @@
+# FatMan menu tile photos, made in Bloom on 10 Oct 2026 (21 credits). One line per tile: file name, Bloom URL.
+# Fetch and resize with:  ./backend/fetch-tiles.sh fatman-pos   (640 px JPEG into fatman-pos/img)
+og-single https://www.trybloom.ai/img/76808397-6d83-4951-bc4b-dd29347dc4b4
+og-double https://www.trybloom.ai/img/5a76577d-fe2e-4229-acc5-08256c7ebc26
+ok-single https://www.trybloom.ai/img/1f077c7f-a764-40cb-8e30-4f8361393959
+ok-double https://www.trybloom.ai/img/102758e9-bc05-4c32-afb8-4db54f905251
+sp-single https://www.trybloom.ai/img/bc0b3d7f-a597-409e-ae14-0ccd00fa3bd4
+sp-double https://www.trybloom.ai/img/6858f6ee-8472-4ac9-98bf-c6c6872d63f6
+fries-salted https://www.trybloom.ai/img/db97f65c-85e5-422c-bfe0-2a3983a081aa
+fries-masala https://www.trybloom.ai/img/c9202ed9-ef54-4df1-8499-434629a51d3e
+fries-peri https://www.trybloom.ai/img/30523f2e-211d-4771-a756-988b870da492
+fries-loaded https://www.trybloom.ai/img/f01212ca-c5c4-4eba-87d6-d3cbda696308
+chicken-strips https://www.trybloom.ai/img/6d3687bd-069b-4988-b98b-c2e1906e4ac4
+drink-soft https://www.trybloom.ai/img/2110e749-59cb-490a-80a8-91500d9af97a
+drink-water https://www.trybloom.ai/img/f2709620-7251-4f49-88be-17b923886e12
+drink-slush https://www.trybloom.ai/img/a15eae06-3125-4199-821c-db9dab7e7515
+dessert-cheesecake https://www.trybloom.ai/img/9a971720-7d76-4828-93c2-93f99fbff63a
+dessert-brownie https://www.trybloom.ai/img/3bc349af-cdbd-481e-afcd-6f0248b372df
+addon-pickles https://www.trybloom.ai/img/ac415dbc-6931-43df-85be-70c791944449
+addon-patty https://www.trybloom.ai/img/ddc97c6e-88f3-46c9-bd78-23e66920f012
+addon-bacon https://www.trybloom.ai/img/78c1db49-89cb-4daa-a04f-cc5b7d854f0a
+addon-cheese https://www.trybloom.ai/img/97e07607-cd1b-4916-be31-ac9f918b4f7f
+addon-jalapeno https://www.trybloom.ai/img/c6fececf-e0d2-4d99-adc3-04803b602414

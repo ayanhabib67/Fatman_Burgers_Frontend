@@ -1,0 +1,22 @@
+# FatMan stock-card packshots, made in Bloom on 16 Oct 2026 (19 credits, Nano Banana 2). Illustrative packshots with plain
+# labels, not photographs of the actual products. One line per stock id: file name, Bloom URL. Fetch and resize with:
+#   ./backend/fetch-tiles.sh fatman-pos STOCK-IMAGES.txt   (640 px JPEG into fatman-pos/img)
+stock-201 https://www.rainbrand.com/img/56b3a521-88c5-4389-b273-404fa6131c6e
+stock-202 https://www.rainbrand.com/img/a03e55ea-8db3-494c-81ce-b10b46bd28a3
+stock-203 https://www.rainbrand.com/img/4a43a3f4-ef50-40b6-9e0c-f14e6bdffe57
+stock-207 https://www.rainbrand.com/img/375e2afc-7116-4452-ae56-32dce469855a
+stock-210 https://www.rainbrand.com/img/a6890ff0-8a43-4958-a178-1a3250a01af8
+stock-213 https://www.rainbrand.com/img/4f14b37d-7e67-45fd-9f74-3490e712de68
+stock-217 https://www.rainbrand.com/img/5101d4f9-a194-4d7c-ad0a-5d025da73255
+stock-224 https://www.rainbrand.com/img/58c0aabb-617b-469e-9456-93a53c944bde
+stock-225 https://www.rainbrand.com/img/30b60377-6fa8-4d6b-a17a-79b5537598c5
+stock-226 https://www.rainbrand.com/img/2932a513-4c11-4a7e-8960-766126086a0b
+stock-227 https://www.rainbrand.com/img/8249500c-4edc-445f-a313-dbbc30f981de
+stock-228 https://www.rainbrand.com/img/f27c61ba-ea05-45db-80a0-8cc0331a4493
+stock-229 https://www.rainbrand.com/img/17859072-27f8-476f-9fe7-c09bdbaea17c
+stock-242 https://www.rainbrand.com/img/55bf973a-f14e-4161-9f17-718c8d4d6c41
+stock-243 https://www.rainbrand.com/img/61d02040-0ada-4ddc-b3e8-e1380b8e2b64
+stock-271 https://www.rainbrand.com/img/229adcf1-6aab-4a55-ac4f-6e6d0a035e21
+stock-272 https://www.rainbrand.com/img/0fed2858-30ca-4e8b-8408-84e5a16f7beb
+stock-273 https://www.rainbrand.com/img/e32ecb9e-6635-4871-a75c-dd88d0f3c5ee
+stock-218 https://www.rainbrand.com/img/ca4ee74b-f2fb-49d7-ae0b-5b8001aab768

@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#F5C538">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FatMan POS">
+<title>FatMan Burger POS</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/img/favicon.png">
+<link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+<link rel="preload" href="/fonts/anton.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/bricolage-grotesque.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/till/styles.css">
+</head>
+<body>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="storageWarning" class="warn-bar hidden">This device is not saving orders. Open the page in Safari or Chrome (not a private tab) so orders are kept.</div>
+
+<!-- ============ LOGIN ============ -->
+<main id="loginScreen" class="login">
+  <section class="login-photo" aria-hidden="true">
+    <img class="logo-big" src="/img/hero.jpg" alt="">
+    <div class="login-brand">
+      <img class="login-logo" src="/img/logo.png" alt="">
+      <div class="wordmark xl" id="heroMark"><span>F</span><span>A</span><span>T</span><span>M</span><span>A</span><span>N</span></div>
+      <p class="hero-line">Smashed fresh. DHA Phase 6.</p>
+    </div>
+    <p class="scribble hero-note">see you at the pass</p>
+  </section>
+
+  <section class="login-panel">
+    <div class="login-inner">
+      <h1 id="greet" class="greet">Good evening</h1>
+      <p id="loginDay" class="muted"></p>
+
+      <div class="seg wide" id="roleSeg" role="group" aria-label="Who is signing in">
+        <button type="button" data-role="barista" class="on" aria-pressed="true">Counter</button>
+        <button type="button" data-role="owner" aria-pressed="false">Owner</button>
+      </div>
+
+      <div id="pinDots" class="dots" role="img" aria-label="PIN, 0 of 4 digits entered"></div>
+      <p id="pinMsg" class="pin-msg" aria-live="assertive">Enter your PIN</p>
+
+      <div class="keypad" id="keypad">
+        <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+        <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+        <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+        <span></span><button type="button" data-k="0">0</button>
+        <button type="button" data-k="back" class="key-back" aria-label="Delete last digit">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1z"/><path d="M17 9l-6 6M11 9l6 6"/></svg>
+        </button>
+      </div>
+      <p class="ver" id="verLbl"></p>
+    </div>
+  </section>
+</main>
+
+<!-- ============ BARISTA ============ -->
+<div id="baristaScreen" class="app hidden">
+  <header class="top">
+    <div class="top-brand">
+      <span class="wordmark">FATMAN</span>
+      <span id="bizDayB" class="top-day"></span>
+    </div>
+    <nav class="tabs" id="bTabs" aria-label="Sections">
+      <button type="button" data-tab="sell" class="on">Sell</button>
+      <button type="button" data-tab="orders">Orders <b id="tabUnpaid" class="tab-badge hidden">0</b></button>
+      <button type="button" data-tab="till">Till</button>
+      <button type="button" data-tab="kitchen" id="kdsTab" class="hidden">Kitchen <b id="kdsLate" class="tab-badge hidden">0</b></button>
+    </nav>
+    <div class="top-actions">
+      <button type="button" class="btn quiet hidden" data-act="who" id="whoBtn">Who is on?</button>
+      <button type="button" class="sync-pill" data-act="sync" id="syncB"><i></i><span>Ready</span></button>
+      <button type="button" class="btn quiet" data-act="logout">Lock</button>
+    </div>
+  </header>
+
+  <!-- SELL -->
+  <section id="tabSell" class="sell">
+    <div class="menu-col">
+      <div class="menu-tools">
+        <label class="search">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input type="search" id="searchInput" placeholder="Search the menu" aria-label="Search the menu" autocomplete="off">
+        </label>
+        <div id="cats" class="chips" role="group" aria-label="Menu sections"></div>
+      </div>
+      <div id="tiles" class="tiles"></div>
+    </div>
+
+    <aside id="orderPanel" class="order" aria-label="Current order">
+      <div class="order-head">
+        <h2>Order <span id="orderNoLbl" class="num"></span></h2>
+        <div>
+          <button type="button" class="link" data-act="clear-cart" id="clearCart">Clear</button>
+          <button type="button" class="btn quiet sheet-only" data-act="close-sheet">Back to menu</button>
+        </div>
+      </div>
+
+      <div id="cartList" class="cart"></div>
+
+      <div class="order-opts">
+        <div class="seg small" id="chanSeg" role="group" aria-label="Where the order came from">
+          <button type="button" data-v="Counter" class="on">Counter</button>
+          <button type="button" data-v="Foodpanda">Foodpanda</button>
+        </div>
+        <div class="seg hidden" id="svcSeg" role="group" aria-label="Dine in or takeaway"></div>
+        <div class="opts-row">
+          <input type="tel" id="tableNo" inputmode="numeric" class="hidden" placeholder="Table" aria-label="Table number" autocomplete="off" maxlength="3">
+          <input type="tel" id="custPhone" inputmode="numeric" placeholder="Phone, optional" aria-label="Customer phone, optional" autocomplete="off" maxlength="15">
+          <input type="text" id="custName" placeholder="Customer's name" aria-label="Customer's name" autocomplete="off" maxlength="40">
+          <button type="button" class="btn quiet" id="waiterBtn" data-act="waiter">Waiter</button>
+          <button type="button" class="btn quiet" id="discBtn" data-act="discount">Discount</button>
+        </div>
+        <p class="hint hidden" id="custHint"></p>
+        <input type="text" id="orderNote" placeholder="Instructions for the kitchen, optional" aria-label="Instructions for the kitchen, optional" autocomplete="off" maxlength="160">
+      </div>
+
+      <div class="order-foot">
+        <div class="sums">
+          <div class="sum-row hidden" id="subRow"><span>Subtotal</span><span id="cartSub">0</span></div>
+          <div class="sum-row hidden" id="discRow"><span id="discLbl">Discount</span><span id="cartDisc">0</span></div>
+          <div class="sum-row hidden" id="taxRow"><span id="taxLbl">Tax</span><span id="cartTax">0</span></div>
+          <div class="sum-total"><span>Total</span><span><b id="cartTotal" class="num">0</b> PKR</span></div>
+        </div>
+        <div class="seg" id="paySeg" role="group" aria-label="Paid by">
+          <button type="button" data-v="Cash" class="on">Cash</button>
+          <button type="button" data-v="Card">Card</button>
+          <button type="button" data-v="Transfer">Transfer</button>
+        </div>
+        <button type="button" class="btn primary big" data-act="charge" id="chargeBtn">
+          <span id="chargeLbl">Charge 0 PKR</span><small>prints the receipt</small>
+        </button>
+        <button type="button" class="link hidden" data-act="pay-now" id="payNowBtn">The customer is paying now instead</button>
+        <button type="button" class="btn secondary" data-act="pay-later" id="laterBtn">Pay at the end <small>kitchen now, mark paid on Orders</small></button>
+      </div>
+    </aside>
+
+    <button type="button" id="cartBar" class="cartbar hidden" data-act="open-sheet">
+      <span id="cartBarCount">0 items</span><b id="cartBarTotal">0 PKR</b><span class="cartbar-go">View order</span>
+    </button>
+  </section>
+
+  <!-- ORDERS -->
+  <section id="tabOrders" class="page hidden">
+    <div class="page-in">
+      <h2 class="h">Waiting to be paid <span id="bUnpaidCount" class="count">0</span></h2>
+      <div id="bUnpaid" class="rows"></div>
+      <h2 class="h">Today's orders <span id="bCount" class="count">0</span></h2>
+      <div id="bOrders" class="rows"></div>
+      <div class="card pad waiter-only">
+        <h2 class="h flush">My shift</h2>
+        <p class="hint">At the end of the shift, check your orders and sign.</p>
+        <div id="signRowsW" class="rows"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- KITCHEN -->
+  <section id="tabKitchen" class="page hidden">
+    <div class="page-in">
+      <div id="lateBar" class="late-bar hidden" role="alert"></div>
+      <h2 class="h">At the pass <span id="kdsNote" class="soft"></span></h2>
+      <div id="kdsList" class="kds"></div>
+      <h2 class="h">Served, last few</h2>
+      <div id="kdsDone" class="rows"></div>
+    </div>
+  </section>
+
+  <!-- TILL -->
+  <section id="tabTill" class="page hidden">
+    <div class="page-in">
+      <div class="drawer-card">
+        <p class="drawer-l">Cash that should be in the drawer</p>
+        <p class="drawer-v"><b id="bsDrawer" class="num">0</b> PKR</p>
+        <p class="drawer-note" id="bsDrawerNote"></p>
+      </div>
+      <div class="stats">
+        <div class="stat"><span class="stat-l">Orders</span><b id="bsOrders" class="num">0</b></div>
+        <div class="stat"><span class="stat-l" id="bsSalesLbl">Sales</span><b id="bsSales" class="num">0</b></div>
+        <div class="stat hidden" id="bsTaxRow"><span class="stat-l">Tax</span><b id="bsTax" class="num">0</b></div>
+        <div class="stat warn"><span class="stat-l">Unpaid</span><b id="bsUnpaid" class="num">0</b></div>
+        <div class="stat"><span class="stat-l">Cash in</span><b id="bsCash" class="num">0</b></div>
+        <div class="stat"><span class="stat-l">Card</span><b id="bsCard" class="num">0</b></div>
+        <div class="stat"><span class="stat-l">Transfer</span><b id="bsTrans" class="num">0</b></div>
+        <div class="stat warn"><span class="stat-l">Expenses paid</span><b id="bsExp" class="num">0</b></div>
+      </div>
+
+      <div id="closeB" class="close-card card"></div>
+
+      <div class="card pad" id="signCardB">
+        <h2 class="h flush">Waiter sign-off</h2>
+        <p class="hint">At the end of the shift each waiter checks their own orders and the cash they handed in, and signs.</p>
+        <div id="signRows" class="rows"></div>
+      </div>
+
+      <div class="card pad" id="stockCardB">
+        <h2 class="h flush">Stock</h2>
+        <p class="hint" id="bsStockNote">Count what is on the shelf at close, and record anything thrown away. Deliveries go in as a Stock expense below.</p>
+        <div class="btn-row">
+          <button type="button" class="btn secondary" data-act="count-ask">Count the stock</button>
+          <button type="button" class="btn secondary" data-act="waste-ask">Record waste</button>
+          <button type="button" class="btn secondary hidden" id="vendorDelBtn" data-act="vdel-ask" data-id="0">Vendor delivery</button>
+          <button type="button" class="btn secondary" data-act="outs-ask">Out of stock today</button>
+        </div>
+        <p class="hint" id="outsNoteB"></p>
+      </div>
+
+      <div class="two">
+        <div>
+          <h2 class="h">Best sellers today</h2>
+          <div id="bsTop" class="bars"></div>
+        </div>
+        <div>
+          <h2 class="h">Log an expense</h2>
+          <form class="card form" id="bExpForm" autocomplete="off">
+            <label for="bExpName">What was bought</label>
+            <input type="text" id="bExpName" placeholder="Buns, mince, oil" maxlength="60">
+            <label for="bExpAmt">Amount paid from the till, PKR</label>
+            <input type="number" id="bExpAmt" inputmode="numeric" min="0" placeholder="0">
+            <select id="bExpLine" aria-label="Which line of the books"></select>
+            <select id="bExpStock" aria-label="Stock item this adds to"></select>
+            <input type="number" id="bExpQty" class="hidden" inputmode="decimal" min="0" aria-label="How much arrived">
+            <div class="seg small" id="bExpType" role="group" aria-label="Kind of expense">
+              <button type="button" data-v="stock" class="on">Stock</button>
+              <button type="button" data-v="run">Running cost</button>
+            </div>
+            <button type="submit" class="btn secondary">Add expense</button>
+            <p class="hint">Keep the paper receipt. The owner sees every expense on the dashboard.</p>
+          </form>
+          <h2 class="h">Expenses logged today</h2>
+          <div id="bsExpList" class="rows"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============ OWNER ============ -->
+<div id="ownerScreen" class="app owner hidden">
+  <header class="owner-hero">
+    <div class="owner-top">
+      <div class="top-brand">
+        <span class="wordmark">FATMAN</span>
+        <span id="bizDayO" class="top-day"></span>
+      </div>
+      <div class="top-actions">
+        <button type="button" class="sync-pill" data-act="sync" id="syncO"><i></i><span>Ready</span></button>
+        <button type="button" class="btn quiet onDark" data-act="logout">Lock</button>
+      </div>
+    </div>
+    <div class="owner-main">
+      <div>
+        <div class="seg onDark" id="periodSeg" role="group" aria-label="Period">
+          <button type="button" data-v="today" class="on">Today</button>
+          <button type="button" data-v="month">This month</button>
+        </div>
+        <p class="hero-l">Net profit</p>
+        <p class="hero-v"><b id="sNet" class="num">0</b> <span>PKR</span></p>
+        <p class="hero-eq" id="heroEq"></p>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs owner-tabs" id="oTabs" aria-label="Owner sections">
+    <button type="button" data-otab="today" class="on">Today</button>
+    <button type="button" data-otab="pass">Pass <b id="oTabLate" class="tab-badge hidden">0</b></button>
+    <button type="button" data-otab="accounts">Accounts <b id="oTabOwed" class="tab-badge hidden">0</b></button>
+    <button type="button" data-otab="days">Close day</button>
+    <button type="button" data-otab="stock">Stock <b id="oTabLow" class="tab-badge hidden">0</b></button>
+    <button type="button" data-otab="shelf" id="oTabShelfBtn">Shelf</button>
+    <button type="button" data-otab="settings">Settings</button>
+  </nav>
+
+  <div class="page-in owner-body">
+   <div id="oToday">
+    <div class="stats">
+      <div class="stat"><span class="stat-l">Sales</span><b id="sSales" class="num">0</b></div>
+      <div class="stat"><span class="stat-l">Ingredient cost</span><b id="sCogs" class="num">0</b></div>
+      <div class="stat good"><span class="stat-l">Gross margin</span><b id="sGross" class="num">0</b></div>
+      <div class="stat warn"><span class="stat-l">Running costs</span><b id="sExp" class="num">0</b></div>
+      <div class="stat"><span class="stat-l">Orders</span><b id="sOrders" class="num">0</b><small id="sWaiters" class="stat-note"></small></div>
+      <div class="stat"><span class="stat-l">Dine in · takeaway</span><b id="sService" class="num">—</b><small id="sServiceNote" class="stat-note"></small></div>
+      <div class="stat"><span class="stat-l">Repeat customers</span><b id="sRepeat" class="num">0</b><small id="sRepeatNote" class="stat-note"></small></div>
+      <div class="stat warn"><span class="stat-l">Remakes</span><b id="sRemake" class="num">0</b><small id="sRemakeNote" class="stat-note"></small></div>
+      <div class="stat warn"><span class="stat-l">Changed after punching</span><b id="sChanges" class="num">0</b><small id="sChangesNote" class="stat-note"></small></div>
+      <div class="stat"><span class="stat-l">Order to pass, min</span><b id="sPass" class="num">—</b><small id="sPassNote" class="stat-note"></small></div>
+      <div class="stat warn"><span class="stat-l">Discounts given</span><b id="sDisc" class="num">0</b></div>
+      <div class="stat"><span class="stat-l">Of which bank card deals</span><b id="sDeal" class="num">0</b><small id="sDealNote" class="stat-note"></small></div>
+      <div class="stat"><span class="stat-l">Stock bought</span><b id="sStock" class="num">0</b></div>
+      <div class="stat warn"><span class="stat-l">Unpaid, all dates</span><b id="sUnpaid" class="num">0</b></div>
+    </div>
+
+    <section class="card pad">
+      <h2 class="h flush">How people paid</h2>
+      <div id="payBar" class="paybar" role="img" aria-label="Payment split"></div>
+      <div id="payLegend" class="legend"></div>
+    </section>
+
+    <section class="card pad">
+      <h2 class="h flush" id="chartTitle">Sales by hour</h2>
+      <div id="chart" class="chart"></div>
+    </section>
+
+    <div class="two">
+      <section>
+        <h2 class="h">Sales by section</h2>
+        <div id="catList" class="bars"></div>
+        <h2 class="h">Where orders came from</h2>
+        <div id="chanList" class="rows"></div>
+      </section>
+      <section>
+        <h2 class="h">Add an expense</h2>
+        <form class="card form" id="oExpForm" autocomplete="off">
+          <label for="expName">What was bought</label>
+          <input type="text" id="expName" placeholder="Buns, mince, cheese" maxlength="60">
+          <label for="expAmt">Amount, PKR</label>
+          <input type="number" id="expAmt" inputmode="numeric" min="0" placeholder="0">
+          <select id="oExpLine" aria-label="Which line of the books"></select>
+          <select id="oExpStock" aria-label="Stock item this adds to"></select>
+          <input type="number" id="oExpQty" class="hidden" inputmode="decimal" min="0" aria-label="How much arrived">
+          <div class="seg small" id="oExpType" role="group" aria-label="Kind of expense">
+            <button type="button" data-v="stock" class="on">Stock</button>
+            <button type="button" data-v="run">Running cost</button>
+          </div>
+          <label class="check"><input type="checkbox" id="expTill" checked> Paid with cash from the till</label>
+          <button type="submit" class="btn secondary">Add expense</button>
+          <p class="hint">Stock is buns, mince, cheese, oil, boxes: things that go into the food. Running costs are repairs, bills and wages. Only running costs come off profit, because each item's making cost already counts the stock.</p>
+        </form>
+        <h2 class="h">Expenses <span id="expPeriodLbl" class="soft">today</span></h2>
+        <div id="expList" class="rows"></div>
+      </section>
+    </div>
+
+    <h2 class="h">Unpaid orders, all dates</h2>
+    <div id="oUnpaid" class="rows"></div>
+
+    <h2 class="h">Griddle camera against the till</h2>
+    <div id="griddleRows" class="rows"></div>
+
+    <h2 class="h">Sales by waiter</h2>
+    <div id="waiterRows" class="rows"></div>
+
+    <h2 class="h">Orders <span id="periodLbl" class="soft">today</span></h2>
+    <div id="oOrders" class="rows"></div>
+
+    <div class="h-row">
+      <h2 class="h">Voided orders</h2>
+      <div class="seg small" id="voidSeg" role="group" aria-label="Voided orders period">
+        <button type="button" data-v="period" class="on">This period</button>
+        <button type="button" data-v="all">All time</button>
+      </div>
+    </div>
+    <div id="voidList" class="rows"></div>
+
+   </div>
+
+   <div id="oPass" class="hidden">
+    <h2 class="h">At the pass <span id="oPassNote" class="soft"></span></h2>
+    <p class="hint">The kitchen works from the printed slips. An order leaves this board when its waiter taps Served.</p>
+    <div id="oPassList" class="kds"></div>
+   </div>
+
+   <div id="oAccounts" class="hidden">
+    <div class="drawer-card owed-card">
+      <p class="drawer-l">Owed to FatMan</p>
+      <p class="drawer-v"><b id="acctTotal" class="num">0</b> PKR</p>
+      <p class="drawer-note" id="acctNote"></p>
+    </div>
+    <h2 class="h">Accounts</h2>
+    <div id="acctList" class="rows"></div>
+    <h2 class="h">Add an account</h2>
+    <form class="card form" id="acctForm" autocomplete="off">
+      <label for="acctName">Name</label>
+      <input type="text" id="acctName" maxlength="40" placeholder="A person, a company, a delivery app">
+      <button type="submit" class="btn secondary">Add account</button>
+    </form>
+   </div>
+
+   <div id="oDays" class="hidden">
+    <h2 class="h">Waiter sign-off today</h2>
+    <div id="signRowsO" class="rows"></div>
+    <div id="closeO" class="close-card card"></div>
+    <h2 class="h">Days closed</h2>
+    <div id="dayList" class="rows"></div>
+   </div>
+
+   <div id="oStock" class="hidden">
+    <div class="drawer-card stock-card">
+      <p class="drawer-l">Stock on the shelf, at cost</p>
+      <p class="drawer-v"><b id="stockValue" class="num">0</b> PKR</p>
+      <p class="drawer-note" id="stockNote"></p>
+    </div>
+    <div class="btn-row stock-acts">
+      <button type="button" class="btn primary" data-act="count-ask">Count the stock</button>
+      <button type="button" class="btn secondary" data-act="waste-ask">Record waste</button>
+      <button type="button" class="btn secondary" data-act="stock-edit" data-id="0">Add a stock item</button>
+      <button type="button" class="btn secondary" data-act="outs-ask">Out of stock today</button>
+    </div>
+    <p class="hint" id="outsNoteO"></p>
+    <h2 class="h">On the shelf</h2>
+    <div id="stockList" class="rows"></div>
+    <h2 class="h">Stock checks</h2>
+    <p class="hint">Each count is compared with what the recipes say should be left. A gap is waste, over-portioning, a wrong recipe, or stock that walked. Recipes come with the scales in week 5.</p>
+    <div id="stockChecks" class="rows"></div>
+    <h2 class="h">Recipes and what an item costs</h2>
+    <p class="hint" id="recipeNote"></p>
+    <div id="recipeList" class="rows"></div>
+   </div>
+
+   <div id="oShelf" class="hidden">
+    <div class="drawer-card stock-card">
+      <p class="drawer-l">The vendor shelf</p>
+      <p class="drawer-note" id="shelfNote"></p>
+    </div>
+    <div class="btn-row stock-acts">
+      <button type="button" class="btn primary" data-act="vendor-edit" data-id="0">Add a vendor</button>
+      <button type="button" class="btn secondary" data-act="vdel-ask" data-id="0">Delivery</button>
+      <button type="button" class="btn secondary" data-act="vret-ask" data-id="0">Return</button>
+    </div>
+    <p class="hint">Other brands' products sold here on consignment. The vendor sets the shelf price and counts the delivery with us; the till records every piece sold under their name; every Monday the week is settled: sold at shelf price, less our cut, is theirs. Unsold goes back to them.</p>
+    <div id="shelfList" class="rows"></div>
+   </div>
+
+   <div id="oSettings" class="hidden">
+    <h2 class="h">Settings</h2>
+    <div class="settings">
+      <div class="card form">
+        <label for="matchaMode" class="hidden">Matcha in stock</label>
+        <select id="matchaMode" class="hidden">
+          <option value="local">Local (11,000 / 200g)</option>
+          <option value="prem">Premium (25,000 / 200g)</option>
+        </select>
+        
+        <span class="field-l" id="paperL">Receipt paper</span>
+        <div class="seg" id="paperSeg" role="group" aria-labelledby="paperL">
+          <button type="button" data-v="80" class="on">80 mm</button>
+          <button type="button" data-v="58">58 mm</button>
+        </div>
+      </div>
+
+      <div class="card form" id="staffCard">
+        <span class="field-l">Staff and personal logins</span>
+        <p class="hint" id="rolesNote"></p>
+        <div id="staffList"></div>
+        <div class="btn-row">
+          <button type="button" class="btn secondary" data-act="staff-add">Add a person</button>
+          <button type="button" class="btn secondary" data-act="roles-toggle" id="rolesBtn">Turn personal logins on</button>
+          <button type="button" class="btn secondary" data-act="menu-publish">Publish the menu</button>
+        </div>
+        <label for="capIn">Discount the till manager may give alone, in percent</label>
+        <div class="split"><input type="number" id="capIn" inputmode="numeric" min="0" max="100"><button type="button" class="btn secondary" data-act="cap-save">Save</button></div>
+        <p class="hint">Waiters take orders and never money. The till manager takes payment and runs the drawer; a void, a refund, a bigger discount or cash taken out needs a manager's PIN or yours. The kitchen needs no login.</p>
+      </div>
+
+      <div class="card form">
+        <span class="field-l">Approvals, and changes the server refused</span>
+        <div id="apLog" class="rows"></div>
+        <div class="btn-row"><button type="button" class="btn secondary" data-act="log-refresh">Refresh</button></div>
+      </div>
+
+      <div class="card form">
+        <span class="field-l">Waiters</span>
+        <p class="hint">Each waiter with a photo shows as a face to tap on the order form. Photos stay in the books behind the sign-in.</p>
+        <div id="peopleList"></div>
+        <div class="btn-row"><button type="button" class="btn secondary" data-act="person-add">Add a waiter</button></div>
+      </div>
+
+      <div class="card form">
+        <span class="field-l">Sync with the server</span>
+        <div class="btn-row">
+          <button type="button" class="btn secondary" data-act="sync">Sync now</button>
+          <button type="button" class="btn secondary" data-act="test-sync">Test sync</button>
+        </div>
+        <div id="syncDiag" class="diag hidden"></div>
+        <span class="field-l">Backup</span>
+        <div class="btn-row">
+          <button type="button" class="btn secondary" data-act="export-csv">Download orders (CSV)</button>
+          <button type="button" class="btn secondary" data-act="export-json">Download full backup</button>
+        </div>
+        <p class="hint" id="storeInfo"></p>
+      </div>
+
+      <div class="card form">
+        <span class="field-l">Change a PIN</span>
+        <p class="hint" id="pinHint"></p>
+        <div class="pin-tool">
+          <select id="pinRole" aria-label="Whose PIN"><option value="barista">Barista</option><option value="owner">Owner</option></select>
+          <input type="password" id="pinNew" inputmode="numeric" maxlength="4" placeholder="New 4-digit PIN" aria-label="New PIN" autocomplete="new-password">
+          <button type="button" class="btn secondary" data-act="pin-line" id="pinGo">Change PIN</button>
+        </div>
+        <label class="check hidden" id="pinOutRow"><input type="checkbox" id="pinOut"> Also sign that role's devices out (lost device, or someone left)</label>
+        <div id="pinOut" class="diag hidden"></div>
+      </div>
+    </div>
+    <p class="foot-note"><span class="scribble">see you at the pass</span> <span id="verLblO"></span></p>
+   </div>
+  </div>
+</div>
+
+<!-- ============ DIALOG + ORDER DONE ============ -->
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card" id="modalCard"></div>
+</div>
+<div id="done" class="done hidden" aria-hidden="true">
+  <div class="done-in">
+    <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"><circle cx="32" cy="32" r="27"/><path class="tick" d="M19 33l9 9 17-19"/></svg>
+    <p class="done-no num" id="doneNo">#0001</p>
+    <p class="done-t" id="doneT">Order saved</p>
+  </div>
+</div>
+
+<div id="receipt"></div>
+
+<script src="/till/config.js"></script>
+<script src="/till/tax.js"></script>
+<script src="/till/app.js"></script>
+</body>
+</html>

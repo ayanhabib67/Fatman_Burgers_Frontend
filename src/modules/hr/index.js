@@ -1,0 +1,13 @@
+export { default as HrLoginPage } from './pages/HrLoginPage';
+export { default as HrHomePage } from './pages/HrHomePage';
+export { default as DirectoryPage } from './pages/DirectoryPage';
+export { default as EmployeeFormPage } from './pages/EmployeeFormPage';
+export { default as ShiftsPage } from './pages/ShiftsPage';
+export { default as DevicesPage } from './pages/DevicesPage';
+export { default as AttendancePage } from './pages/AttendancePage';
+export { default as EmployeeAttendancePage } from './pages/EmployeeAttendancePage';
+export { default as StaffBoardPage } from './pages/StaffBoardPage';
+export { default as LeavePage } from './pages/LeavePage';
+export { default as CorrectionsPage } from './pages/CorrectionsPage';
+export { default as OvertimePage } from './pages/OvertimePage';
+export { default as PunchLogsPage } from './pages/PunchLogsPage';
