@@ -1,0 +1,34 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+            cd /var/www/fatman/frontend
+            git fetch origin main
+            git reset --hard origin/main
+            npm ci || npm install
+            VITE_API_BASE_URL=/api/v1 npm run build
+            nginx -t
+            systemctl reload nginx
+            curl -fsS -o /dev/null -w "%{http_code}\n" https://fatman-pos.greenwich.edu.pk/ || curl -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1/
