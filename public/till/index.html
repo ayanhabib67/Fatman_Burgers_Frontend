@@ -145,6 +145,45 @@
     </button>
   </section>
 
+  <!-- CHANGE ORDER (full page, same layout as Sell) -->
+  <section id="tabChange" class="sell chg-page hidden">
+    <div class="menu-col">
+      <div class="menu-tools">
+        <div id="chgCats" class="chips" role="group" aria-label="Menu sections"></div>
+      </div>
+      <div id="chgTiles" class="tiles"></div>
+    </div>
+
+    <aside id="chgPanel" class="order" aria-label="Order changes">
+      <div class="order-head">
+        <h2>Change <span id="chgNoLbl" class="num"></span></h2>
+        <div>
+          <button type="button" class="link" data-act="chg-cancel">Back</button>
+          <button type="button" class="btn quiet sheet-only" data-act="close-sheet">Back to menu</button>
+        </div>
+      </div>
+      <p id="chgNote" class="hint chg-hint"></p>
+      <div id="chgList" class="cart"></div>
+      <div class="order-opts">
+        <div id="chgPayWrap" class="hidden">
+          <p class="deal-tier" id="chgPayLbl"><b>Collect the extra by</b></p>
+          <div id="chgPay" class="chips tight" role="group" aria-label="Payment for the difference"></div>
+        </div>
+      </div>
+      <div class="order-foot">
+        <div class="sum-total"><span id="chgDeltaText">No change yet</span><span><b id="chgDelta" class="num">0</b></span></div>
+        <button type="button" class="btn primary big" data-act="chg-apply" id="chgApplyBtn">
+          <span id="chgApplyLbl">Apply the change</span>
+        </button>
+        <button type="button" class="btn secondary" data-act="chg-cancel">Cancel</button>
+      </div>
+    </aside>
+
+    <button type="button" id="chgBar" class="cartbar" data-act="chg-open-sheet">
+      <span id="chgBarText">Review change</span><b id="chgBarDelta">0</b><span class="cartbar-go">View</span>
+    </button>
+  </section>
+
   <!-- ORDERS -->
   <section id="tabOrders" class="page hidden">
     <div class="page-in">

@@ -799,7 +799,10 @@ function openModal(html) {
 }
 function closeModal() {
   basketPanel = false;
+  if (chg) { chg.pendingCancel = null; chg.cancelPick = ''; }
+  paidAsk = null;
   $('modal').classList.add('hidden'); $('modalCard').innerHTML = '';
+  $('modalCard').classList.remove('chg-wide');
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
 function showDone(no, text) {
@@ -2312,7 +2315,11 @@ function showOTab(t) {
 }
 
 function openSheet() { $('orderPanel').classList.add('open'); document.body.style.overflow = 'hidden'; }
-function closeSheet() { $('orderPanel').classList.remove('open'); document.body.style.overflow = ''; }
+function closeSheet() {
+  $('orderPanel').classList.remove('open');
+  if ($('chgPanel')) $('chgPanel').classList.remove('open');
+  document.body.style.overflow = '';
+}
 
 function openCustom() {
   customWarned = false;
@@ -2428,11 +2435,24 @@ function printReceipt(o, withKitchen) {
 }
 function receiptHtml(o) {
   var lines = '';
+  var taxRate = (TAX.enabled && o.tax) ? Number(o.tax.rate) : 0;
+  function lineTax(amt) {
+    if (!taxRate) return 0;
+    var t = Math.round((Math.abs(amt) * taxRate / 100 + 0.00000001) * 100) / 100;
+    return amt < 0 ? -t : t;
+  }
   o.items.forEach(function (it) {
     var base = hasMods(it) ? it.bp : it.p;
-    lines += '<div class="l"><span>' + esc(label(it)) + (it.q > 1 ? ' x' + it.q : '') + '</span><span>' + n0(base * it.q) + '</span></div>';
-    if (hasMods(it)) it.mods.forEach(function (m) { lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>+ ' + esc(m.n) + (it.q > 1 ? ' x' + it.q : '') + '</span><span>' + n0(m.p * it.q) + '</span></div>'; });
+    var lineAmt = it.p * it.q;
+    lines += '<div class="l"><span>' + esc(label(it)) + '</span></div>';
+    lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>' + it.q + ' x ' + n0(base) + '</span><span>' + n0(base * it.q) + '</span></div>';
+    if (hasMods(it)) it.mods.forEach(function (m) {
+      lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>+ ' + esc(m.n) + ' · ' + it.q + ' x ' + n0(m.p) + '</span><span>' + n0(m.p * it.q) + '</span></div>';
+    });
     if (it.note) lines += '<div class="l" style="padding-left:10px;font-size:10px">' + esc(it.note) + '</div>';
+    if (TAX.enabled && TAX.showLine && o.tax) {
+      lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>Tax ' + esc(o.tax.rate) + '%</span><span>' + lineTax(lineAmt).toFixed(2) + '</span></div>';
+    }
   });
   if (o.note) lines += '<div class="l" style="font-size:10px">Note: ' + esc(o.note) + '</div>';
   if (TAX.enabled) lines += '<div class="l"><span>SUBTOTAL</span><span>' + n0(o.sub) + '</span></div>';
@@ -2467,6 +2487,7 @@ function reslip(id) { var o = findOrder(id); if (o) printSlip(o); }
    counter camera at the moment of each change and lists it on the exceptions page. ---- */
 var chg = null;
 var CHANGE_WHY = ['Customer changed mind', 'Wrong item punched', 'Item not available', 'Added later', 'Other'];
+var CANCEL_WHY = ['Customer changed mind', 'Wrong item punched', 'Item not available', 'Other'];
 function lineKey(it) { return [it.n, it.c, (it.mods || []).map(function (m) { return m.n; }).join('+'), it.note || '', it.free ? 'free' : ''].join('|'); }
 function isCancel(it) { return !!(it.cancel || it.p < 0); }
 function liveAdjustments(o) { return orders.filter(function (x) { return x.adj && x.adj.of === o.id; }).sort(function (a, b) { return a.id - b.id; }); }
@@ -2484,8 +2505,87 @@ function effectiveItems(o) {
 }
 function askChange(id) {
   var o = findOrder(id); if (!o || o.remake || o.adj) return;
-  chg = { id: id, items: effectiveItems(o), why: '', pay: '' };
+  chg = { id: id, items: effectiveItems(o), pay: '', cat: 'All', cancels: {}, pendingCancel: null, cancelPick: '' };
+  showTab('change');
   renderChange();
+}
+function closeChangePage() {
+  chg = null;
+  if ($('chgPanel')) $('chgPanel').classList.remove('open');
+  document.body.style.overflow = '';
+  showTab('orders');
+}
+function chgQty(m) {
+  var n = 0;
+  chg.items.forEach(function (c) { if (c.n === m.n && c.c === m.c) n += c.q; });
+  return n;
+}
+function chgCancelWhyText(c) {
+  if (!c) return '';
+  return c.why === 'Other' ? txt(c.other || '', 60).trim() || 'Other' : c.why;
+}
+function chgWhySummary(d) {
+  var parts = [];
+  d.removed.forEach(function (it) {
+    var w = chgCancelWhyText(chg.cancels[lineKey(it)]);
+    parts.push(label(it) + ': ' + (w || 'Cancelled'));
+  });
+  if (d.added.length) parts.push('Added later');
+  return parts.join('; ');
+}
+function askCancelWhy(i) {
+  var it = chg.items[i]; if (!it) return;
+  chg.pendingCancel = i;
+  chg.cancelPick = '';
+  openModal('<h2 id="modalTitle">Why cancel ' + esc(label(it)) + '?</h2>' +
+    '<p class="deal-note">This comes off the order. Pick why for this item.</p>' +
+    '<div class="chips tight" id="chgCancelWhy">' + CANCEL_WHY.map(function (w) {
+      return '<button type="button" data-act="chg-cancel-why" data-v="' + w + '">' + w + '</button>';
+    }).join('') + '</div>' +
+    '<input type="text" id="chgCancelOther" class="hidden" maxlength="60" placeholder="Say what happened" aria-label="Other reason">' +
+    '<div class="modal-actions"><button type="button" class="btn secondary" data-act="chg-cancel-abort">Keep item</button>' +
+    '<button type="button" class="btn primary" data-act="chg-cancel-go" id="chgCancelGo" disabled>Remove</button></div>');
+}
+function pickCancelWhy(v) {
+  if (!chg || chg.pendingCancel == null) return;
+  chg.cancelPick = v;
+  [].forEach.call(document.querySelectorAll('#chgCancelWhy button'), function (b) {
+    b.classList.toggle('on', b.getAttribute('data-v') === v);
+  });
+  if ($('chgCancelOther')) {
+    $('chgCancelOther').classList.toggle('hidden', v !== 'Other');
+    if (v === 'Other') $('chgCancelOther').focus();
+  }
+  if ($('chgCancelGo')) $('chgCancelGo').disabled = false;
+}
+function confirmCancelWhy() {
+  if (!chg || chg.pendingCancel == null || !chg.cancelPick) return;
+  var why = chg.cancelPick, other = '';
+  if (why === 'Other') {
+    other = txt(($('chgCancelOther') && $('chgCancelOther').value) || '', 60).trim();
+    if (!other) { toast('Say what happened'); return; }
+  }
+  applyCancelUnit(chg.pendingCancel, why, other);
+}
+function applyCancelUnit(i, why, other) {
+  var it = chg.items[i]; if (!it) { closeModal(); return; }
+  var k = lineKey(it);
+  if (!chg.cancels[k]) chg.cancels[k] = { why: why, other: other || '', q: 0, n: label(it) };
+  chg.cancels[k].why = why;
+  chg.cancels[k].other = other || '';
+  chg.cancels[k].q += 1;
+  it.q -= 1;
+  if (it.q <= 0) chg.items.splice(i, 1);
+  chg.pendingCancel = null;
+  chg.cancelPick = '';
+  closeModal();
+  renderChange();
+}
+function clearCancelCredit(it, by) {
+  var k = lineKey(it), c = chg.cancels[k];
+  if (!c) return;
+  c.q -= by;
+  if (c.q <= 0) delete chg.cancels[k];
 }
 function changeDiff(o) {
   var before = {}, after = {}, added = [], removed = [];
@@ -2497,48 +2597,103 @@ function changeDiff(o) {
   return { added: added, removed: removed, delta: delta, text: added.map(function (it) { return '+' + it.q + ' ' + label(it); }).concat(removed.map(function (it) { return '-' + it.q + ' ' + label(it); })).join(', ') };
 }
 function renderChange() {
-  var o = findOrder(chg.id); if (!o) { closeModal(); return; }
+  if (!chg || !$('tabChange')) return;
+  var o = findOrder(chg.id); if (!o) { closeChangePage(); return; }
+  var tileScroll = $('chgTiles') ? $('chgTiles').scrollTop : 0;
   var d = changeDiff(o), paid = o.payment !== 'Unpaid', mv = Math.round(d.delta * (100 - Math.min(100, Math.max(0, num(o.discountPct)))) / 100);
   if (paid && TAX.enabled) mv = TAX.compute([{ p: d.delta, q: 1 }], Math.round(d.delta * Math.min(100, Math.max(0, num(o.discountPct))) / 100), chg.pay || (o.deal ? 'Card' : o.payment)).total;
-  openModal('<h2 id="modalTitle">Change order #' + pad(o.no) + '</h2>' +
-    '<p class="deal-note">' + (paid ? 'This order is paid, so the change is rung as its own line: extra to collect, or a refund.' : 'Not paid yet, so the order itself is changed. The kitchen gets a change slip.') + ' Every change is kept with your name, the time and the reason, and the counter camera clip is attached for the owner.</p>' +
-    '<div class="rows">' + chg.items.map(function (it, i) {
-      return '<div class="line"><div><div class="line-name">' + esc(label(it)) + modsText(it) + '</div>' + (it.note ? '<div class="line-note">' + esc(it.note) + '</div>' : '') + '</div>' +
-        '<div class="stepper"><button type="button" data-act="chg-dec" data-i="' + i + '" aria-label="One less">\u2212</button><b>' + it.q + '</b><button type="button" data-act="chg-inc" data-i="' + i + '" aria-label="One more">+</button></div>' +
-        '<div class="line-total">' + n0(it.p * it.q) + '</div></div>';
-    }).join('') + '</div>' +
-    '<label for="chgAdd">Add an item</label><div class="split"><select id="chgAdd">' + MENU.map(function (m, i) { return isOut(m) ? '' : '<option value="' + i + '">' + esc(m.n) + ' · ' + n0(m.p) + '</option>'; }).join('') + '</select>' +
-    '<button type="button" class="btn secondary" data-act="chg-add">Add</button></div>' +
-    '<p class="deal-tier"><b>Why</b></p><div class="chips tight">' + CHANGE_WHY.map(function (w) { return '<button type="button" data-act="chg-why" data-v="' + w + '"' + (chg.why === w ? ' class="on"' : '') + '>' + w + '</button>'; }).join('') + '</div>' +
-    (chg.why === 'Other' ? '<input type="text" id="chgOther" maxlength="60" placeholder="Say what happened" value="' + esc(chg.other || '') + '">' : '') +
-    '<div class="close-line sum"><span>' + (d.text ? esc(d.text) : 'No change yet') + (o.discountPct ? ' (at ' + o.discountPct + '% off)' : '') + '</span><b>' + (mv > 0 ? '+' : '') + n0(mv) + '</b></div>' +
-    (paid && mv ? '<p class="deal-tier"><b>' + (mv > 0 ? 'Collect the extra by' : 'Refund by') + '</b></p><div class="chips tight">' + ['Cash', 'Card', 'Transfer'].map(function (m) { return '<button type="button" data-act="chg-pay" data-v="' + m + '"' + (chg.pay === m ? ' class="on"' : '') + '>' + m + '</button>'; }).join('') + '</div>' : '') +
-    '<div class="modal-actions"><button type="button" class="btn secondary" data-act="close-modal">Cancel</button>' +
-    '<button type="button" class="btn primary" data-act="chg-apply">' + (paid ? 'Ring the change' : 'Apply the change') + '</button></div>');
-  var sel = $('chgAdd'); if (sel && chg.addSel != null) sel.value = chg.addSel;
+  $('chgNoLbl').textContent = '#' + pad(o.no);
+  $('chgNote').textContent = paid
+    ? 'Paid order: extras and refunds ring as their own line. Removing an item asks why straight away.'
+    : 'Not paid yet: this updates the order and prints a change slip. Removing an item asks why straight away.';
+  var list = '', cancelKeys = Object.keys(chg.cancels || {});
+  chg.items.forEach(function (it, i) {
+    list += '<div class="line"><div><div class="line-name">' + esc(label(it)) + modsText(it) + '</div>' + (it.note ? '<div class="line-note">' + esc(it.note) + '</div>' : '') + '</div>' +
+      '<div class="stepper"><button type="button" data-act="chg-dec" data-i="' + i + '" aria-label="One less">\u2212</button><b>' + it.q + '</b><button type="button" data-act="chg-inc" data-i="' + i + '" aria-label="One more">+</button></div>' +
+      '<div class="line-total">' + n0(it.p * it.q) + '</div></div>';
+  });
+  if (cancelKeys.length) {
+    list += '<p class="deal-tier"><b>Cancelled</b></p>';
+    cancelKeys.forEach(function (k) {
+      var c = chg.cancels[k];
+      list += '<div class="line chg-cancel-line"><div><div class="line-name">' + esc(c.n || k) + '</div>' +
+        '<div class="line-note">' + esc(chgCancelWhyText(c)) + (c.q > 1 ? ' · ×' + c.q : '') + '</div></div></div>';
+    });
+  }
+  $('chgList').innerHTML = list || '<div class="cart-empty"><div class="scribble">nothing left on the order</div></div>';
+  var cat = chg.cat || 'All', cats = '<button type="button" data-act="chg-cat" data-v="All"' + (cat === 'All' ? ' class="on"' : '') + '>All</button>';
+  categories().forEach(function (c) {
+    cats += '<button type="button" data-act="chg-cat" data-v="' + esc(c) + '"' + (cat === c ? ' class="on"' : '') + '>' + esc(c) + '</button>';
+  });
+  $('chgCats').innerHTML = cats;
+  var tiles = '';
+  MENU.forEach(function (m, i) {
+    if (cat !== 'All' && m.c !== cat) return;
+    var n = chgQty(m), out = isOut(m);
+    tiles += '<button type="button" class="tile' + (out ? ' out' : '') + '" data-act="chg-add" data-i="' + i + '" aria-label="' + (out ? 'Out today: ' : 'Add ') + esc(label(m)) + ', ' + m.p + ' rupees">' +
+      '<span class="tile-ph"><img src="/img/' + esc(m.i || 'food') + '.jpg" alt="" loading="lazy" width="320" height="320">' + (out ? '<i class="out-tag">Out today</i>' : '') +
+      '<b class="qty' + (n ? '' : ' hidden') + '">' + n + '</b></span>' +
+      '<span class="tile-name">' + esc(m.n) + '</span>' +
+      '<span class="tile-meta"><span class="tile-cat">' + esc(m.c) + '</span><span class="tile-price">' + n0(m.p) + '</span></span></button>';
+  });
+  $('chgTiles').innerHTML = tiles;
+  $('chgTiles').scrollTop = tileScroll;
+  var showPay = !!(paid && mv);
+  $('chgPayWrap').classList.toggle('hidden', !showPay);
+  if (showPay) {
+    $('chgPayLbl').innerHTML = '<b>' + (mv > 0 ? 'Collect the extra by' : 'Refund by') + '</b>';
+    $('chgPay').innerHTML = ['Cash', 'Card', 'Transfer'].map(function (m) {
+      return '<button type="button" data-act="chg-pay" data-v="' + m + '"' + (chg.pay === m ? ' class="on"' : '') + '>' + m + '</button>';
+    }).join('');
+  }
+  var deltaLbl = (d.text ? d.text : 'No change yet') + (o.discountPct ? ' (at ' + o.discountPct + '% off)' : '');
+  $('chgDeltaText').textContent = deltaLbl;
+  $('chgDelta').textContent = (mv > 0 ? '+' : '') + n0(mv);
+  $('chgApplyLbl').textContent = paid ? 'Ring the change' : 'Apply the change';
+  $('chgBarText').textContent = d.text ? 'Review change' : 'Order #' + pad(o.no);
+  $('chgBarDelta').textContent = (mv > 0 ? '+' : '') + n0(mv) + ' PKR';
 }
-function changeQty(i, by) { var it = chg.items[i]; if (!it) return; it.q += by; if (it.q <= 0) chg.items.splice(i, 1); renderChange(); }
-function changeAdd() {
-  var sel = $('chgAdd'), m = MENU[+sel.value]; if (!m) return; chg.addSel = sel.value;
-  var found = null; chg.items.forEach(function (c) { if (c.n === m.n && c.c === m.c && !c.note && !hasMods(c) && !c.free) found = c; });
-  if (found) found.q++; else chg.items.push({ n: m.n, c: m.c, p: m.p, k: m.k, q: 1 });
+function changeQty(i, by) {
+  var it = chg.items[i]; if (!it) return;
+  if (by < 0) { askCancelWhy(i); return; }
+  it.q += by;
+  clearCancelCredit(it, by);
+  renderChange();
+}
+function changeAdd(i) {
+  var m = MENU[i]; if (!m) return;
+  if (isOut(m)) { toast(m.n + ' is out today'); return; }
+  var kk = (!matchaLocal && m.kPrem) ? m.kPrem : m.k, found = null;
+  chg.items.forEach(function (c) { if (c.n === m.n && c.c === m.c && !c.note && !hasMods(c) && !c.free) found = c; });
+  if (found) { found.q++; clearCancelCredit(found, 1); }
+  else chg.items.push(m.v ? { n: m.n, c: m.c, p: m.p, k: kk, q: 1, v: m.v, vi: m.vi } : { n: m.n, c: m.c, p: m.p, k: kk, q: 1 });
   renderChange();
 }
 function changeSlipHtml(o, d, adjNo) {
   var lines = '';
   d.added.forEach(function (it) { lines += '<div class="l kl"><span>ADD ' + esc(label(it)) + modsText(it) + '</span><span>x' + it.q + '</span></div>' + (it.note ? '<div class="l kl" style="padding-left:10px;font-weight:700">&raquo; ' + esc(it.note) + '</div>' : ''); });
-  d.removed.forEach(function (it) { lines += '<div class="l kl"><span>CANCEL ' + esc(label(it)) + modsText(it) + '</span><span>x' + it.q + '</span></div>' + (it.note ? '<div class="l kl" style="padding-left:10px;font-weight:700">&raquo; ' + esc(it.note) + '</div>' : ''); });
+  d.removed.forEach(function (it) {
+    var w = chgCancelWhyText(chg.cancels[lineKey(it)]);
+    lines += '<div class="l kl"><span>CANCEL ' + esc(label(it)) + modsText(it) + '</span><span>x' + it.q + '</span></div>' +
+      (w ? '<div class="l kl" style="padding-left:10px;font-weight:700">&raquo; ' + esc(w) + '</div>' : '') +
+      (it.note ? '<div class="l kl" style="padding-left:10px;font-weight:700">&raquo; ' + esc(it.note) + '</div>' : '');
+  });
   return '<div class="rc kitchen' + (paper80 ? '' : ' narrow') + '"><div class="sub">CHANGE TO #' + pad(o.no) + (adjNo ? ' &middot; RUNG AS #' + pad(adjNo) : '') + '</div>' +
     '<div style="text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:46px;font-weight:700;line-height:1.1">' + pad(o.no) + '</div>' +
-    '<div class="l"><span>' + esc(timeNow()) + '</span><span>' + esc(String(chg.why === 'Other' ? (chg.other || 'Other') : chg.why).toUpperCase()) + '</span></div>' +
+    '<div class="l"><span>' + esc(timeNow()) + '</span><span>CHANGE</span></div>' +
     (o.customer && o.customer !== 'Walk-in' ? '<div class="l"><span>FOR</span><span>' + esc(o.customer) + '</span></div>' : '') +
     '<div class="rule"></div>' + lines + '<div class="rule"></div></div>';
 }
 function applyChange(okId) {
   var o = findOrder(chg.id); if (!o) return;
-  if ($('chgOther')) chg.other = $('chgOther').value;
-  var d = changeDiff(o), why = chg.why === 'Other' ? txt(chg.other || '', 60).trim() : chg.why;
+  var d = changeDiff(o), why = chgWhySummary(d);
   if (!d.added.length && !d.removed.length) { toast('Nothing has changed'); return; }
+  if (d.removed.length) {
+    for (var ri = 0; ri < d.removed.length; ri++) {
+      var rk = lineKey(d.removed[ri]), rc = chg.cancels[rk];
+      if (!rc || !chgCancelWhyText(rc) || rc.q < d.removed[ri].q) { toast('Say why for each cancelled item'); return; }
+    }
+  }
   if (!why) { toast('Say why'); return; }
   if (!chg.items.length && o.payment === 'Unpaid') { toast('To take everything off, void the order instead'); return; }
   var paid = o.payment !== 'Unpaid', entry = { at: nowMs(), by: whoName(), why: why, was: o.total, d: txt(d.text, 100) };
@@ -2557,7 +2712,7 @@ function applyChange(okId) {
     if (o.servedAt && d.added.length) { delete o.servedAt; delete o.servedBy; }   /* something new to make: back on the pass */
     stamp(o); commit('orders', o.id);
     sendToPrinter(changeSlipHtml(o, d, 0));
-    closeModal(); chg = null; refreshAll(); toast('Order #' + pad(o.no) + ' changed');
+    closeChangePage(); refreshAll(); toast('Order #' + pad(o.no) + ' changed');
     return;
   }
   var pctNow = Math.min(100, Math.max(0, num(o.discountPct))), moves = Math.round(d.delta * (100 - pctNow) / 100);
@@ -2587,7 +2742,7 @@ function applyChange(okId) {
   orders.push(a); commit('orders', a.id);
   entry.now = o.total + total; entry.adjNo = a.no; o.edits = (o.edits || []).concat([entry]).slice(-20); stamp(o); commit('orders', o.id);
   sendToPrinter(changeSlipHtml(o, d, a.no) + (d.delta ? receiptHtml(a) : ''));
-  closeModal(); chg = null; refreshAll();
+  closeChangePage(); refreshAll();
   toast(total > 0 ? 'Extra ' + money(total) + ' collected by ' + chg_payWord(a.payment) + ' as #' + pad(a.no) : total < 0 ? 'Refund ' + money(-total) + ' by ' + chg_payWord(a.payment) + ' as #' + pad(a.no) : 'Change rung as #' + pad(a.no));
 }
 function chg_payWord(m) { return String(m).toLowerCase(); }
@@ -2631,22 +2786,49 @@ function sendRemake(id, okId, kept) {
 function rekitchen(id) { var o = findOrder(id); if (o) { sendToPrinter(kitchenHtml(o)); toast('Kitchen slip for #' + pad(o.no) + ' sent again'); } }
 
 /* ====== PAY LATER, VOID, EXPENSES ====== */
+var paidAsk = null;
 function askPaid(id) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid') return;
+  paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
+  renderPaidAsk();
+}
+function paidAskAmount() {
+  var o = findOrder(paidAsk && paidAsk.id); if (!o) return { pct: 0, disc: 0, sale: 0 };
+  var sale = 0; o.items.forEach(function (it) { sale += it.p * it.q; });
+  var pct = Math.min(100, Math.max(0, num(paidAsk.pct)));
+  return { pct: pct, disc: Math.round(sale * pct / 100), sale: sale };
+}
+function renderPaidAsk() {
+  if (!paidAsk) return;
+  var o = findOrder(paidAsk.id); if (!o || o.payment !== 'Unpaid') { paidAsk = null; closeModal(); return; }
+  var a = paidAskAmount(), std = [0, 5, 10, 15, 20, 50];
   openModal('<h2 id="modalTitle">Order #' + pad(o.no) + ' paid by</h2>' +
-    '<p>' + money(o.total) + (TAX.enabled ? ' before tax' : '') + (o.customer && o.customer !== 'Walk-in' ? ' from ' + esc(o.customer) : '') + '. A full receipt prints once you choose.</p>' +
+    '<p>' + money(a.sale) + ' subtotal' + (TAX.enabled ? ' before tax' : '') + (o.customer && o.customer !== 'Walk-in' ? ' from ' + esc(o.customer) : '') + '. A full receipt prints once you choose.</p>' +
+    '<p class="deal-tier"><b>Discount</b></p>' +
+    '<div class="chips tight" role="group" aria-label="Discount percent">' + std.map(function (d) {
+      return '<button type="button" data-act="paid-disc" data-v="' + d + '"' + (a.pct === d ? ' class="on"' : '') + '>' + (d ? d + '%' : 'None') + '</button>';
+    }).join('') + '</div>' +
+    '<label for="paidDiscPct">Or type another percentage</label>' +
+    '<div class="split"><input type="number" id="paidDiscPct" inputmode="numeric" min="0" max="100" placeholder="0 to 100"' + (std.indexOf(a.pct) < 0 ? ' value="' + a.pct + '"' : '') + '>' +
+    '<button type="button" class="btn secondary" data-act="paid-disc-apply">Apply</button></div>' +
+    (a.disc ? '<div class="close-line sum"><span>Discount ' + a.pct + '%</span><b>−' + n0(a.disc) + '</b></div>' : '') +
     '<div class="pay-pick">' + ['Cash', 'Card', 'Transfer'].map(function (m) {
-      var t = TAX.enabled ? TAX.compute(o.items, o.discount, m) : null;
-      return '<button type="button" class="btn secondary" data-act="paid-by" data-v="' + m + '" data-id="' + o.id + '">' + m + (t ? ' · ' + money(t.total) + ' (Tax ' + t.rate + '%)' : '') + '</button>';
+      var t = TAX.enabled ? TAX.compute(o.items, a.disc, m) : null;
+      var due = t ? t.total : Math.max(0, a.sale - a.disc);
+      return '<button type="button" class="btn secondary" data-act="paid-by" data-v="' + m + '" data-id="' + o.id + '">' + m + ' · ' + money(due) + (t ? ' (Tax ' + t.rate + '%)' : '') + '</button>';
     }).join('') + '</div>' +
     '<button type="button" class="btn quiet" data-act="close-modal">Not paid yet</button>');
 }
 function markPaid(id, method) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
   if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
+  var a = (paidAsk && paidAsk.id === id) ? paidAskAmount() : { pct: num(o.discountPct), disc: num(o.discount) };
+  o.discountPct = a.pct; o.discount = a.disc;
+  if (o.deal && a.pct !== num(o.deal.pct)) delete o.deal;
   o.payment = method; applyOrderTax(o); o.paidAt = timeNow(); o.paidDate = localeDay(); o.paidIso = isoNow(); stamp(o);
+  paidAsk = null;
   commit('orders', o.id); closeModal(); refreshAll(); printReceipt(o);
-  toast('Order #' + pad(o.no) + ' paid by ' + method.toLowerCase());
+  toast('Order #' + pad(o.no) + ' paid by ' + method.toLowerCase() + (a.pct ? ' · ' + a.pct + '% off' : ''));
 }
 function askVoid(id) {
   var o = findOrder(id); if (!o) return;
@@ -2839,12 +3021,21 @@ function fillStockSelect(selId, qtyId) {
   }
 }
 function showTab(t) {
+  if (t !== 'change' && chg) {
+    chg = null;
+    if ($('chgPanel')) $('chgPanel').classList.remove('open');
+    document.body.style.overflow = '';
+  }
   ui.tab = t;
-  [].forEach.call($('bTabs').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-tab') === t); });
+  [].forEach.call($('bTabs').querySelectorAll('button'), function (b) {
+    var tab = b.getAttribute('data-tab');
+    b.classList.toggle('on', t === 'change' ? tab === 'orders' : tab === t);
+  });
   $('tabSell').classList.toggle('hidden', t !== 'sell');
   $('tabOrders').classList.toggle('hidden', t !== 'orders');
   $('tabTill').classList.toggle('hidden', t !== 'till');
   if ($('tabKitchen')) $('tabKitchen').classList.toggle('hidden', t !== 'kitchen');
+  if ($('tabChange')) $('tabChange').classList.toggle('hidden', t !== 'change');
   if (t === 'till') renderTill();
   clearInterval(kdsTimer); kdsTimer = null;
   if (t === 'kitchen') {
@@ -3621,10 +3812,15 @@ function onClick(ev) {
     case 'chg-ask': askChange(id); break;
     case 'chg-dec': changeQty(i, -1); break;
     case 'chg-inc': changeQty(i, 1); break;
-    case 'chg-add': changeAdd(); break;
-    case 'chg-why': chg.why = el.getAttribute('data-v'); if (chg.why !== 'Other') chg.other = ''; else if ($('chgOther')) chg.other = $('chgOther').value; renderChange(); break;
-    case 'chg-pay': chg.pay = el.getAttribute('data-v'); if ($('chgOther')) chg.other = $('chgOther').value; renderChange(); break;
+    case 'chg-add': changeAdd(i); break;
+    case 'chg-cat': chg.cat = el.getAttribute('data-v'); renderChange(); break;
+    case 'chg-pay': chg.pay = el.getAttribute('data-v'); renderChange(); break;
     case 'chg-apply': applyChange(); break;
+    case 'chg-cancel': closeChangePage(); break;
+    case 'chg-open-sheet': if ($('chgPanel')) { $('chgPanel').classList.add('open'); document.body.style.overflow = 'hidden'; } break;
+    case 'chg-cancel-why': pickCancelWhy(el.getAttribute('data-v')); break;
+    case 'chg-cancel-go': confirmCancelWhy(); break;
+    case 'chg-cancel-abort': chg.pendingCancel = null; chg.cancelPick = ''; closeModal(); break;
     case 'me-pick': askMyPin(id); break;
     case 'me-back': askWhoAmI(!me); break;
     case 'me-go': meLogin(id); break;
@@ -3651,6 +3847,8 @@ function onClick(ev) {
     case 'reslip': reslip(id); break;
     case 'ask-paid': askPaid(id); break;
     case 'paid-by': markPaid(id, el.getAttribute('data-v')); break;
+    case 'paid-disc': if (paidAsk) { paidAsk.pct = num(el.getAttribute('data-v')); renderPaidAsk(); } break;
+    case 'paid-disc-apply': if (paidAsk && $('paidDiscPct')) { paidAsk.pct = Math.min(100, Math.max(0, num($('paidDiscPct').value))); renderPaidAsk(); } break;
     case 'ask-void': askVoid(id); break;
     case 'void-reason':
       [].forEach.call($('voidReasons').querySelectorAll('button'), function (b) { b.classList.toggle('on', b === el); });

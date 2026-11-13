@@ -19,8 +19,8 @@ window.WHIPPED_CONFIG = {
      The database keeps each outlet's orders, PINs and devices apart. */
   OUTLET: 'fatman',
 
-  /* WP113: Transfer is treated as a digital payment at 8% (our assumption). */
-  TAX: { enabled: true, rates: { Cash: 15, Card: 8, Transfer: 8 }, inclusive: false, showLine: true },
+  /* Cash and Transfer at 15%; Card at 8%. */
+  TAX: { enabled: true, rates: { Cash: 15, Card: 8, Transfer: 15 }, inclusive: false, showLine: true },
 
   /* ---- Server (Supabase), the same project as Whipped ---- */
   API_RPC_BASE: '/api/v1/rpc',
@@ -57,7 +57,7 @@ window.WHIPPED_CONFIG = {
   /* ---- Staff ----
      Whoever unlocks the till picks their name; it goes on every order, void, expense, count and waste.
      Same names as the attendance list. Add or remove here; an empty list switches the question off. */
-  STAFF: ["Rayyan", "Hammad", "Atif", "Farhan", "Asad", "Arman", "Yaqoob", "Zareef", "Sumar", "Ali Gul"],
+  STAFF: ["Atif", "Arman", "Yaqoob"],
 
   /* A kitchen slip prints with every new order: number, time, items large, no prices. */
   KITCHEN_SLIP: true,

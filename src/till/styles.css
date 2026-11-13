@@ -438,19 +438,19 @@ input:focus,select:focus{outline:none;border-color:var(--espresso);box-shadow:0 
 
 /* ============ RECEIPT (thermal printer) ============ */
 #receipt{display:none}
-.rc{width:80mm;padding:5mm 4mm;background:#fff;color:#000;font-family:'Courier New',monospace;font-size:11px;line-height:1.55}
+.rc{width:80mm;padding:5mm 4mm;background:#fff;color:#000;font-family:'Courier New',monospace;font-size:11px;line-height:1.55;font-weight:700}
 .rc.narrow{width:58mm;font-size:10px}
-.rc .brand{text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:26px;font-weight:600;letter-spacing:5px}
+.rc .brand{text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:26px;font-weight:700;letter-spacing:5px}
 .rc.narrow .brand{font-size:20px;letter-spacing:3px}
-.rc .sub{text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:7px;letter-spacing:2px;margin-top:3px}
+.rc .sub{text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:7px;letter-spacing:2px;margin-top:3px;font-weight:700}
 .rc .rule{border-top:1px dashed #000;margin:8px 0}
-.rc .l{display:flex;justify-content:space-between;gap:8px}
+.rc .l{display:flex;justify-content:space-between;gap:8px;font-weight:700}
 .rc .l span:last-child{white-space:nowrap}
-.rc .tot{display:flex;justify-content:space-between;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;font-weight:600}
+.rc .tot{display:flex;justify-content:space-between;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:15px;font-weight:700}
 .rc .foot{position:relative;margin-top:10px}
 .rc .footxt{position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);text-align:center}
-.rc .tagline{font-family:Georgia,'Times New Roman',serif;font-size:17px}
-.rc .handle{font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:9px;letter-spacing:1px;margin-top:3px}
+.rc .tagline{font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700}
+.rc .handle{font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:9px;letter-spacing:1px;margin-top:3px;font-weight:700}
 .rc.kitchen{page-break-before:always;break-before:page;padding-top:10px}
 .rc .kl{font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:17px;font-weight:700;padding:3px 0}
 @media print{
@@ -558,8 +558,20 @@ input:focus,select:focus{outline:none;border-color:var(--espresso);box-shadow:0 
 .cart-empty{padding:8px 0}
 @media (max-width:900px){.login-photo img.login-logo{width:48px;height:48px;margin-bottom:8px}.login-photo::after{background:linear-gradient(0deg,rgba(245,197,56,.7) 0%,rgba(245,197,56,0) 60%)}}
 #laterBtn{white-space:nowrap}#laterBtn small{white-space:normal}
-#chgAdd{flex:1;min-width:0;min-height:44px;border-radius:12px;padding:8px 10px;font:inherit}
-.modal .rows .line{padding:6px 0}
+.chg-page .chg-hint{margin:0 18px 8px;font-size:14px;line-height:1.35}
+.chg-page #chgCats{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chg-page #chgCats::-webkit-scrollbar{display:none}
+.chg-page #chgPay button{background:#fff;box-shadow:inset 0 0 0 1.5px var(--line)}
+.chg-page #chgPay button.on{background:#141414;color:var(--sky);box-shadow:none}
+.chg-page .order-opts .deal-tier{margin:4px 0 2px}
+.chg-page #chgDeltaText{font-size:14px;font-weight:600;color:var(--mocha);max-width:70%;overflow-wrap:anywhere}
+.chg-page .chg-cancel-line{opacity:.85}
+.chg-page .chg-cancel-line .line-name{text-decoration:line-through}
+#chgCancelOther{width:100%;min-height:44px;border-radius:12px;padding:10px 12px;border:0;box-shadow:inset 0 0 0 1.5px var(--line);margin-top:4px}
+#chgCancelWhy button{background:#fff;box-shadow:inset 0 0 0 1.5px var(--line)}
+#chgCancelWhy button.on{background:#141414;color:var(--sky);box-shadow:none}
+.modal .rows .line{padding:6px 0;min-width:0}
+.modal .rows .line > div:first-child{min-width:0}
 
 /* people, roles and approvals (12 Oct 2026): each role sees what it can do; the server enforces it */
 body:not([data-me="waiter"]) .waiter-only{display:none!important}
