@@ -2794,25 +2794,31 @@ function payMethodDue(o) {
   if (num(o.discountPct)) disc = Math.round(sale * Math.min(100, Math.max(0, num(o.discountPct))) / 100);
   return TAX.enabled ? TAX.compute(o.items, disc, o.deal ? 'Card' : 'Cash').total : Math.max(0, sale - disc);
 }
-function askPayMethod(id) {
+function askPayMethod(id, mode) {
   var o = findOrder(id); if (!o) return;
   var unpaid = o.payment === 'Unpaid';
-  if (unpaid) paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
+  if (mode !== 'bill' && mode !== 'pay' && mode !== 'reprint') mode = unpaid ? 'pay' : 'reprint';
+  if (mode === 'pay') paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
   var due = payMethodDue(o);
   var who = (o.customer && o.customer !== 'Walk-in') ? esc(o.customer) : 'Walk-in';
+  var kick = mode === 'bill' ? 'Print bill' : (mode === 'pay' ? 'Mark as paid' : 'Reprint receipt');
+  var head = mode === 'bill' ? 'Print bill as' : 'How was this paid?';
+  var hint = mode === 'bill'
+    ? 'Tap a method to print the bill. Order stays unpaid until you mark paid.'
+    : (mode === 'pay' ? 'Tap a method to take payment and print the receipt' : 'Tap a method to print the receipt');
   openModal(
     '<div class="paid-sheet">' +
       '<div class="paid-hero">' +
-        '<p class="paid-kicker">' + (unpaid ? 'Mark as paid' : 'Reprint receipt') + '</p>' +
+        '<p class="paid-kicker">' + kick + '</p>' +
         '<h2 id="modalTitle" class="paid-title">Order <span class="num">#' + pad(o.no) + '</span></h2>' +
         '<p class="paid-meta">' + who + (o.table ? ' · Table ' + num(o.table) : '') + (o.svc ? ' · ' + esc(o.svc) : '') + '</p>' +
         '<div class="paid-sub"><span>Amount</span><b class="num">' + n0(due) + '</b></div>' +
       '</div>' +
       '<div class="paid-block">' +
-        '<div class="paid-block-h">How was this paid?</div>' +
-        '<p class="paid-hint">' + (unpaid ? 'Tap a method to take payment and print the receipt' : 'Tap a method to print the receipt') + '</p>' +
+        '<div class="paid-block-h">' + head + '</div>' +
+        '<p class="paid-hint">' + hint + '</p>' +
         '<div class="pay-pick">' + ['Cash', 'Card', 'Transfer'].map(function (m) {
-          return '<button type="button" class="pay-opt pay-opt-solo' + (!unpaid && o.payment === m ? ' on' : '') + '" data-act="pay-method" data-v="' + m + '" data-id="' + o.id + '">' +
+          return '<button type="button" class="pay-opt pay-opt-solo' + (mode === 'reprint' && o.payment === m ? ' on' : '') + '" data-act="pay-method" data-mode="' + mode + '" data-v="' + m + '" data-id="' + o.id + '">' +
             '<span class="pay-opt-m">' + m + '</span></button>';
         }).join('') + '</div>' +
       '</div>' +
@@ -2820,10 +2826,19 @@ function askPayMethod(id) {
     '</div>',
   'paid-modal');
 }
-function askReprint(id) { askPayMethod(id); }
-function payMethodBy(id, method) {
+function askReprint(id) {
+  var o = findOrder(id);
+  askPayMethod(id, o && o.payment === 'Unpaid' ? 'bill' : 'reprint');
+}
+function payMethodBy(id, method, mode) {
   var o = findOrder(id); if (!o || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
-  if (o.payment === 'Unpaid') { markPaid(id, method); return; }
+  if (mode === 'bill') {
+    closeModal();
+    printSlip(o);
+    toast('Bill printed · ' + method + ' · still unpaid');
+    return;
+  }
+  if (o.payment === 'Unpaid' || mode === 'pay') { markPaid(id, method); return; }
   if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
   if (o.payment !== method) {
     o.payment = method;
@@ -2835,7 +2850,7 @@ function payMethodBy(id, method) {
   printReceipt(o);
   toast('Receipt reprinted · ' + method);
 }
-function reprintBy(id, method) { payMethodBy(id, method); }
+function reprintBy(id, method) { payMethodBy(id, method, 'reprint'); }
 function reslip(id) { var o = findOrder(id); if (o) printSlip(o); }
 /* ---- Changing an order after it is punched (12 Oct 2026). Every change needs a reason and is kept with who and when.
    An unpaid order is changed in place (edits[] on the order). A paid order is never rewritten: the change becomes a linked
@@ -3156,14 +3171,14 @@ function rekitchen(id) { var o = findOrder(id); if (o) { sendToPrinter(kitchenHt
 
 /* ====== PAY LATER, VOID, EXPENSES ====== */
 var paidAsk = null;
-function askPaid(id) { askPayMethod(id); }
+function askPaid(id) { askPayMethod(id, 'pay'); }
 function paidAskAmount() {
   var o = findOrder(paidAsk && paidAsk.id); if (!o) return { pct: 0, disc: 0, sale: 0 };
   var sale = 0; o.items.forEach(function (it) { sale += it.p * it.q; });
   var pct = Math.min(100, Math.max(0, num(paidAsk.pct)));
   return { pct: pct, disc: Math.round(sale * pct / 100), sale: sale };
 }
-function renderPaidAsk() { if (paidAsk) askPayMethod(paidAsk.id); }
+function renderPaidAsk() { if (paidAsk) askPayMethod(paidAsk.id, 'pay'); }
 function markPaid(id, method) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
   if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
@@ -3337,7 +3352,7 @@ function todayOrderRow(o, sn) {
     '<p>' + esc(itemsText(o)) + (o.remake ? ' (' + esc(o.remake.why) + ')' : o.adj ? ' (' + esc(o.adj.why) + ')' : '') + '</p><p>' + esc(o.customer) + ', ' + esc(shortTime(o)) + (o.svc ? ', ' + esc(o.svc) : '') + (o.channel !== 'Counter' ? ', ' + esc(o.channel) : '') + '</p></div>' +
     '<div class="row-side"><span class="row-amt">' + n0(o.total) + '</span>' +
     (o.payment === 'Unpaid' && !isRole('waiter') ? '<button type="button" class="btn sm primary" data-act="ask-paid" data-id="' + o.id + '">Paid</button>' : '') +
-    '<button type="button" class="btn sm secondary" data-act="' + (o.payment === 'Unpaid' ? 'reslip' : 'reprint') + '" data-id="' + o.id + '">Reprint</button>' +
+    '<button type="button" class="btn sm secondary" data-act="reprint" data-id="' + o.id + '">Reprint</button>' +
     (KITCHEN_SLIP ? '<button type="button" class="btn sm secondary" data-act="rekitchen" data-id="' + o.id + '">Kitchen again</button>' : '') +
     (o.remake || o.adj ? '' : '<button type="button" class="btn sm secondary" data-act="remake-ask" data-id="' + o.id + '">Remake</button>' +
       (isToday(o) ? '<button type="button" class="btn sm secondary" data-act="chg-ask" data-id="' + o.id + '">Change</button>' : '')) +
@@ -3753,7 +3768,7 @@ function renderOwner() {
       '<p>' + esc(itemsText(o)) + '</p><p>' + esc(o.customer) + ', ' + (period === 'month' ? esc(dayText(o)) + ' ' : '') + esc(shortTime(o)) + ', ' + esc(channelLabel(o.channel)) + (o.by ? ', by ' + esc(o.by) : '') + (passMinutes(o) != null ? ', to pass ' + passMinutes(o).toFixed(1) + ' min' : '') +
       (o.discount > 0 ? ', ' + (o.deal ? esc(o.deal.bank) + ' deal ' : 'discount ') + (o.discountPct ? o.discountPct + '% = ' : '') + n0(o.discount) : '') + (o.waiter ? ', waiter ' + esc(o.waiter) : '') + (o.note ? '<br>Note: ' + esc(o.note) : '') + '</p></div>' +
       '<div class="row-side"><span class="row-amt">' + n0(o.total) + '<small>+' + n0(o.total - o.cogs) + '</small></span>' +
-      '<button type="button" class="btn sm secondary" data-act="' + (o.payment === 'Unpaid' ? 'reslip' : 'reprint') + '" data-id="' + o.id + '">Reprint</button>' +
+      '<button type="button" class="btn sm secondary" data-act="reprint" data-id="' + o.id + '">Reprint</button>' +
       (KITCHEN_SLIP ? '<button type="button" class="btn sm secondary" data-act="rekitchen" data-id="' + o.id + '">Kitchen again</button>' : '') +
       (o.remake || o.adj ? '' : '<button type="button" class="btn sm secondary" data-act="remake-ask" data-id="' + o.id + '">Remake</button>' +
         (isToday(o) ? '<button type="button" class="btn sm secondary" data-act="chg-ask" data-id="' + o.id + '">Change</button>' : '')) +
@@ -4312,11 +4327,11 @@ function onClick(ev) {
     case 'clear-waiter': setWaiter(''); closeModal(); break;
     case 'save-custom': addCustom(); break;
     case 'close-modal': closeModal(); break;
-    case 'reprint': askPayMethod(id); break;
+    case 'reprint': askPayMethod(id, findOrder(id) && findOrder(id).payment === 'Unpaid' ? 'bill' : 'reprint'); break;
     case 'reprint-by':
-    case 'pay-method': payMethodBy(id, el.getAttribute('data-v')); break;
+    case 'pay-method': payMethodBy(id, el.getAttribute('data-v'), el.getAttribute('data-mode') || ''); break;
     case 'reslip': reslip(id); break;
-    case 'ask-paid': askPayMethod(id); break;
+    case 'ask-paid': askPayMethod(id, 'pay'); break;
     case 'paid-by': markPaid(id, el.getAttribute('data-v')); break;
     case 'paid-disc': if (paidAsk) { paidAsk.pct = num(el.getAttribute('data-v')); renderPaidAsk(); } break;
     case 'paid-disc-apply': if (paidAsk && $('paidDiscPct')) { paidAsk.pct = Math.min(100, Math.max(0, num($('paidDiscPct').value))); renderPaidAsk(); } break;
