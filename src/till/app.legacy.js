@@ -2739,14 +2739,33 @@ function printReceipt(o, withKitchen) {
   sendToPrinter(receiptHtml(o));
   if (withKitchen && KITCHEN_SLIP) sendToPrinter(kitchenHtml(o));
 }
-function receiptHtml(o) {
-  var lines = '';
-  var taxRate = (TAX.enabled && o.tax) ? Number(o.tax.rate) : 0;
+function printCustomerBill(o, method) {
+  sendToPrinter(customerBillHtml(o, method || o.payment));
+}
+function customerBillHtml(o, method) {
+  var unpaid = o.payment === 'Unpaid';
+  var pay = method || (unpaid ? 'Cash' : o.payment);
+  var disc = num(o.discount);
+  if (unpaid && num(o.discountPct)) {
+    var sale0 = 0; o.items.forEach(function (it) { sale0 += it.p * it.q; });
+    disc = Math.round(sale0 * Math.min(100, Math.max(0, num(o.discountPct))) / 100);
+  }
+  var taxInfo = null, total = num(o.total), sub = num(o.sub);
+  if (TAX.enabled) {
+    if (unpaid) {
+      taxInfo = TAX.compute(o.items, disc, pay);
+      total = taxInfo.total; sub = taxInfo.sale;
+    } else if (o.tax) {
+      taxInfo = { rate: o.tax.rate, tax: o.tax.tax, sale: o.tax.sale != null ? o.tax.sale : sub };
+    }
+  }
+  var taxRate = taxInfo ? Number(taxInfo.rate) : 0;
   function lineTax(amt) {
     if (!taxRate) return 0;
     var t = Math.round((Math.abs(amt) * taxRate / 100 + 0.00000001) * 100) / 100;
     return amt < 0 ? -t : t;
   }
+  var lines = '';
   o.items.forEach(function (it) {
     var base = hasMods(it) ? it.bp : it.p;
     var lineAmt = it.p * it.q;
@@ -2756,15 +2775,14 @@ function receiptHtml(o) {
       lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>+ ' + esc(m.n) + ' · ' + it.q + ' x ' + n0(m.p) + '</span><span>' + n0(m.p * it.q) + '</span></div>';
     });
     if (it.note) lines += '<div class="l" style="padding-left:10px;font-size:10px">' + esc(it.note) + '</div>';
-    if (TAX.enabled && TAX.showLine && o.tax) {
-      lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>Tax ' + esc(o.tax.rate) + '%</span><span>' + lineTax(lineAmt).toFixed(2) + '</span></div>';
+    if (TAX.enabled && TAX.showLine && taxInfo) {
+      lines += '<div class="l" style="padding-left:10px;font-size:10px"><span>Tax ' + esc(taxInfo.rate) + '%</span><span>' + lineTax(lineAmt).toFixed(2) + '</span></div>';
     }
   });
   if (o.note) lines += '<div class="l" style="font-size:10px">Note: ' + esc(o.note) + '</div>';
-  if (TAX.enabled) lines += '<div class="l"><span>SUBTOTAL</span><span>' + n0(o.sub) + '</span></div>';
-  if (o.discount > 0 || (TAX.enabled && o.discount < 0)) lines += '<div class="l"><span>' + (TAX.enabled ? 'DISCOUNT' + (o.deal ? ' · ' + esc(dealText(o)) : '') : (o.deal ? esc(dealText(o)) : 'Discount')) + (o.discountPct ? ' (' + o.discountPct + '%)' : '') + '</span><span>' + (o.discount < 0 ? '+' : '-') + n0(Math.abs(o.discount)) + '</span></div>';
-  /* Reprints use the saved tax, never today's rates. Older receipts have no tax record. */
-  if (TAX.enabled && TAX.showLine && o.tax) lines += '<div class="l"><span>TAX ' + esc(o.tax.rate) + '%</span><span>' + Number(o.tax.tax).toFixed(2) + '</span></div>';
+  if (TAX.enabled) lines += '<div class="l"><span>SUBTOTAL</span><span>' + n0(sub) + '</span></div>';
+  if (disc > 0 || (TAX.enabled && disc < 0)) lines += '<div class="l"><span>' + (TAX.enabled ? 'DISCOUNT' + (o.deal ? ' · ' + esc(dealText(o)) : '') : (o.deal ? esc(dealText(o)) : 'Discount')) + (o.discountPct ? ' (' + o.discountPct + '%)' : '') + '</span><span>' + (disc < 0 ? '+' : '-') + n0(Math.abs(disc)) + '</span></div>';
+  if (TAX.enabled && TAX.showLine && taxInfo) lines += '<div class="l"><span>TAX ' + esc(taxInfo.rate) + '%</span><span>' + Number(taxInfo.tax).toFixed(2) + '</span></div>';
   return ('<div class="rc' + (paper80 ? '' : ' narrow') + '">' +
     '<div class="brand">' + esc(BRAND.wordmark) + '</div><div class="sub">' + esc(BRAND.tagline) + '</div>' +
     '<div class="rule"></div>' +
@@ -2776,13 +2794,20 @@ function receiptHtml(o) {
     (o.table ? '<div class="l"><span>TABLE</span><span>' + num(o.table) + '</span></div>' : '') +
     (o.customer && o.customer !== 'Walk-in' ? '<div class="l"><span>NAME</span><span>' + esc(o.customer) + '</span></div>' : '') +
     '<div class="rule"></div>' + lines + '<div class="rule"></div>' +
-    '<div class="tot"><span>TOTAL</span><span>' + n0(o.total) + ' PKR</span></div>' +
-    '<div class="l" style="margin-top:5px"><span>PAID BY</span><span>' + esc(String(o.payment).toUpperCase()) + '</span></div>' +
+    '<div class="tot"><span>' + (unpaid ? 'TO PAY' : 'TOTAL') + '</span><span>' + n0(total) + ' PKR</span></div>' +
+    (unpaid
+      ? '<div class="l" style="margin-top:5px"><span>PAY BY</span><span>' + esc(String(pay).toUpperCase()) + '</span></div>' +
+        '<div style="text-align:center;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:12px;font-weight:600;letter-spacing:1px;margin:8px 0 4px">PAYMENT PENDING</div>' +
+        '<div style="text-align:center;font-size:10px">Please settle at the counter.</div>'
+      : '<div class="l" style="margin-top:5px"><span>PAID BY</span><span>' + esc(String(o.payment).toUpperCase()) + '</span></div>') +
     (o.visit && LOYALTY ? '<div class="l" style="font-size:10px"><span>VISIT ' + o.visit + '</span><span>' + (o.reward ? 'free ' + esc(o.reward) + ' today' : (LOYALTY.every - o.visit % LOYALTY.every) + ' more to a free ' + esc(LOYALTY.item)) + '</span></div>' : '') +
     (o.waiter ? '<div class="l"><span>SERVED BY</span><span>' + esc(o.waiter) + '</span></div>' : '') +
     '<div class="foot">' + doodles() +
       '<div class="footxt"><div class="tagline">' + esc(BRAND.sign) + '</div><div class="handle">' + esc(CFG.HANDLE || '') + '</div></div>' +
     '</div></div>');
+}
+function receiptHtml(o) {
+  return customerBillHtml(o, o.payment);
 }
 function findOrder(id) { for (var i = 0; i < orders.length; i++) if (orders[i].id === id) return orders[i]; return null; }
 function reprint(id) { var o = findOrder(id); if (o) printReceipt(o); }
@@ -2801,11 +2826,13 @@ function askPayMethod(id, mode) {
   if (mode === 'pay') paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
   var due = payMethodDue(o);
   var who = (o.customer && o.customer !== 'Walk-in') ? esc(o.customer) : 'Walk-in';
-  var kick = mode === 'bill' ? 'Print bill' : (mode === 'pay' ? 'Mark as paid' : 'Reprint receipt');
-  var head = mode === 'bill' ? 'Print bill as' : 'How was this paid?';
-  var hint = mode === 'bill'
-    ? 'Tap a method to print the bill. Order stays unpaid until you mark paid.'
-    : (mode === 'pay' ? 'Tap a method to take payment and print the receipt' : 'Tap a method to print the receipt');
+  var kick = mode === 'pay' ? 'Mark as paid' : 'Customer bill';
+  var head = mode === 'pay' ? 'How was this paid?' : 'Print customer bill as';
+  var hint = mode === 'pay'
+    ? 'Tap a method to take payment and print the receipt'
+    : (unpaid
+      ? 'Tap a method to print the customer bill. Order stays unpaid.'
+      : 'Tap a method to reprint the customer bill');
   openModal(
     '<div class="paid-sheet">' +
       '<div class="paid-hero">' +
@@ -2832,23 +2859,27 @@ function askReprint(id) {
 }
 function payMethodBy(id, method, mode) {
   var o = findOrder(id); if (!o || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
-  if (mode === 'bill') {
+  /* Paid button only */
+  if (mode === 'pay') { markPaid(id, method); return; }
+  /* Reprint: customer bill for paid or unpaid — never mark unpaid as paid */
+  if (mode === 'bill' || mode === 'reprint' || o.payment === 'Unpaid') {
     closeModal();
-    printSlip(o);
-    toast('Bill printed · ' + method + ' · still unpaid');
+    if (o.payment !== 'Unpaid' && o.payment !== method) {
+      if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
+      o.payment = method;
+      stamp(o);
+      commit('orders', o.id);
+      refreshAll();
+    }
+    printCustomerBill(o, method);
+    toast(o.payment === 'Unpaid'
+      ? ('Customer bill · ' + method + ' · still unpaid')
+      : ('Customer bill reprinted · ' + method));
     return;
   }
-  if (o.payment === 'Unpaid' || mode === 'pay') { markPaid(id, method); return; }
-  if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
-  if (o.payment !== method) {
-    o.payment = method;
-    stamp(o);
-    commit('orders', o.id);
-    refreshAll();
-  }
   closeModal();
-  printReceipt(o);
-  toast('Receipt reprinted · ' + method);
+  printCustomerBill(o, method);
+  toast('Customer bill reprinted · ' + method);
 }
 function reprintBy(id, method) { payMethodBy(id, method, 'reprint'); }
 function reslip(id) { var o = findOrder(id); if (o) printSlip(o); }
