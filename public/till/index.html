@@ -279,10 +279,16 @@
         <div>
           <h2 class="h">Log an expense</h2>
           <form class="card form" id="bExpForm" autocomplete="off">
-            <label for="bExpName">What was bought</label>
-            <input type="text" id="bExpName" placeholder="Buns, mince, oil" maxlength="60">
-            <label for="bExpAmt">Amount paid from the till, PKR</label>
-            <input type="number" id="bExpAmt" inputmode="numeric" min="0" placeholder="0">
+            <label>Items on this receipt</label>
+            <div id="bExpLines" class="exp-lines" data-form="b">
+              <div class="exp-line">
+                <input type="text" class="exp-item-name" placeholder="Item name" maxlength="40" aria-label="Item name">
+                <input type="number" class="exp-item-amt" inputmode="numeric" min="0" placeholder="Rate" aria-label="Rate">
+                <button type="button" class="btn sm quiet exp-line-x" data-act="exp-line-del" aria-label="Remove item">×</button>
+              </div>
+            </div>
+            <button type="button" class="btn sm secondary" data-act="exp-line-add" data-form="b">+ Add another item</button>
+            <p class="hint exp-total">Total paid from the till <b id="bExpTotal" class="num">0</b> PKR</p>
             <select id="bExpLine" aria-label="Which line of the books"></select>
             <select id="bExpStock" aria-label="Stock item this adds to"></select>
             <input type="number" id="bExpQty" class="hidden" inputmode="decimal" min="0" aria-label="How much arrived">
@@ -377,10 +383,16 @@
       <section>
         <h2 class="h">Add an expense</h2>
         <form class="card form" id="oExpForm" autocomplete="off">
-          <label for="expName">What was bought</label>
-          <input type="text" id="expName" placeholder="Buns, mince, cheese" maxlength="60">
-          <label for="expAmt">Amount, PKR</label>
-          <input type="number" id="expAmt" inputmode="numeric" min="0" placeholder="0">
+          <label>Items on this receipt</label>
+          <div id="oExpLines" class="exp-lines" data-form="o">
+            <div class="exp-line">
+              <input type="text" class="exp-item-name" placeholder="Item name" maxlength="40" aria-label="Item name">
+              <input type="number" class="exp-item-amt" inputmode="numeric" min="0" placeholder="Rate" aria-label="Rate">
+              <button type="button" class="btn sm quiet exp-line-x" data-act="exp-line-del" aria-label="Remove item">×</button>
+            </div>
+          </div>
+          <button type="button" class="btn sm secondary" data-act="exp-line-add" data-form="o">+ Add another item</button>
+          <p class="hint exp-total">Total <b id="oExpTotal" class="num">0</b> PKR</p>
           <select id="oExpLine" aria-label="Which line of the books"></select>
           <select id="oExpStock" aria-label="Stock item this adds to"></select>
           <input type="number" id="oExpQty" class="hidden" inputmode="decimal" min="0" aria-label="How much arrived">

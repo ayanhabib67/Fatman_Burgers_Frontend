@@ -315,6 +315,15 @@ function cleanExpense(e) {
   if (!e || typeof e !== 'object' || e.id == null || !isFinite(Number(e.id))) return null;
   e.id = Number(e.id); e.amount = num(e.amount); e.name = txt(e.name, 80);
   if (e.u != null) e.u = num(e.u);
+  if (Array.isArray(e.items)) {
+    e.items = e.items.slice(0, 40).map(function (x) {
+      if (!x || typeof x !== 'object') return null;
+      var n = txt(x.n, 40), a = num(x.a);
+      if (!n || !(a > 0)) return null;
+      return { n: n, a: a };
+    }).filter(Boolean);
+    if (!e.items.length) delete e.items;
+  }
   return e;
 }
 function cleanItem(c) {
@@ -1963,11 +1972,14 @@ function ensureCloseDraft() {
       iso: iso,
       opening: rec && rec.opening != null ? String(num(rec.opening)) : '',
       openingAt: (rec && rec.openingAt) || '',
+      cardMeezan: rec && rec.cardMeezanCounted != null ? String(num(rec.cardMeezanCounted)) : '',
+      cardFaysal: rec && rec.cardFaysalCounted != null ? String(num(rec.cardFaysalCounted)) : '',
       card: rec && rec.cardCounted != null ? String(num(rec.cardCounted)) : '',
       cardAt: (rec && rec.cardAt) || '',
       cardNote: (rec && rec.cardNote) || '',
       cards: rec && Array.isArray(rec.cards) ? copy(rec.cards) : [],
       transfers: rec && Array.isArray(rec.transfers) ? copy(rec.transfers) : [],
+      transfer: rec && rec.transferCounted != null ? String(num(rec.transferCounted)) : '',
       transferAt: (rec && rec.transferAt) || '',
       transferNote: (rec && rec.transferNote) || '',
       counted: rec && rec.counted != null ? String(num(rec.counted)) : '',
@@ -1980,6 +1992,10 @@ function syncDraftFromDom(card) {
   if (!card || !closeDraft) return;
   var o = card.querySelector('.open-in'); if (o && document.activeElement !== o) closeDraft.opening = o.value;
   var n = card.querySelector('.count-in'); if (n && document.activeElement !== n) closeDraft.counted = n.value;
+  var cm = card.querySelector('.card-meezan-in'); if (cm && document.activeElement !== cm) closeDraft.cardMeezan = cm.value;
+  var cf = card.querySelector('.card-faysal-in'); if (cf && document.activeElement !== cf) closeDraft.cardFaysal = cf.value;
+  var ci = card.querySelector('.card-in'); if (ci && document.activeElement !== ci) closeDraft.card = ci.value;
+  var tr = card.querySelector('.transfer-in'); if (tr && document.activeElement !== tr) closeDraft.transfer = tr.value;
   var cn = card.querySelector('.card-note'); if (cn && document.activeElement !== cn) closeDraft.cardNote = cn.value;
   var tn = card.querySelector('.xfer-block-note'); if (tn && document.activeElement !== tn) closeDraft.transferNote = tn.value;
   [].forEach.call(card.querySelectorAll('.card-pay-note'), function (inp) {
@@ -1998,19 +2014,27 @@ function syncDraftFromDom(card) {
   });
 }
 function persistCloseDraft(extra) {
-  var d = ensureCloseDraft(), patch = {
+  var d = ensureCloseDraft();
+  var meezanV = d.cardMeezan === '' ? undefined : num(d.cardMeezan);
+  var faysalV = d.cardFaysal === '' ? undefined : num(d.cardFaysal);
+  var cardTotal = (meezanV != null || faysalV != null)
+    ? num(meezanV) + num(faysalV)
+    : (d.card === '' ? undefined : num(d.card));
+  var patch = {
     opening: d.opening === '' ? undefined : num(d.opening),
     openingAt: d.openingAt || undefined,
-    cardCounted: d.card === '' ? undefined : num(d.card),
+    cardMeezanCounted: meezanV,
+    cardFaysalCounted: faysalV,
+    cardCounted: cardTotal,
     cardAt: d.cardAt || undefined,
     cardNote: txt(d.cardNote || '', 200) || undefined,
     cards: (d.cards || []).map(function (t) {
       return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', note: txt(t.note || '', 200) };
     }),
     transfers: (d.transfers || []).map(function (t) {
-      return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', url: t.url || '', publicId: t.publicId || '', at: t.at || '', note: txt(t.note || '', 200) };
+      return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', note: txt(t.note || '', 200) };
     }),
-    transferCounted: xferSum(d.transfers),
+    transferCounted: d.transfer === '' ? undefined : num(d.transfer),
     transferAt: d.transferAt || undefined,
     transferNote: txt(d.transferNote || '', 200) || undefined
   };
@@ -2088,125 +2112,50 @@ function renderCloseCard(elId) {
   var d = ensureCloseDraft();
   if (rec && rec.opening != null && d.opening === '') d.opening = String(num(rec.opening));
   if (rec && rec.openingAt && !d.openingAt) d.openingAt = rec.openingAt;
+  if (rec && rec.cardMeezanCounted != null && d.cardMeezan === '') d.cardMeezan = String(num(rec.cardMeezanCounted));
+  if (rec && rec.cardFaysalCounted != null && d.cardFaysal === '') d.cardFaysal = String(num(rec.cardFaysalCounted));
   if (rec && rec.cardCounted != null && d.card === '') d.card = String(num(rec.cardCounted));
   if (rec && rec.cardAt && !d.cardAt) d.cardAt = rec.cardAt;
   if (rec && rec.cardNote && !d.cardNote) d.cardNote = rec.cardNote;
   if (rec && rec.transferAt && !d.transferAt) d.transferAt = rec.transferAt;
   if (rec && rec.transferNote && !d.transferNote) d.transferNote = rec.transferNote;
+  if (rec && rec.transferCounted != null && d.transfer === '') d.transfer = String(num(rec.transferCounted));
   var cf = cardFeed(isoNow()), bf = bankFeed(isoNow());
   var h = '<h2 class="h flush">Close the day</h2>';
   var blind = isRole('till') && !closed;
-  if (blind) h += '<p class="hint">Count the drawer and fill card + each bank transfer. Totals show after the day is closed.</p>';
-  else h += closeLine('Cash taken in today', f.cashIn, '+') + closeLine('Expenses paid from the till', f.exTill, '\u2212') +
+  if (!f.prev && !(rec && rec.opening != null)) {
+    h += '<label>Cash in the drawer when today began (asked once, then carried forward every day)</label>' +
+      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="0" aria-label="Opening cash" value="' + esc(d.opening) + '">' +
+      '<button type="button" class="btn secondary" data-act="set-opening">Set opening cash</button></div>';
+  }
+  if (blind) h += '<p class="hint">Count the drawer and type the total. The till shows what it expected once the day is closed.</p>';
+  else h += closeLine('Opening cash' + (f.prev && !(rec && rec.opening != null) ? ', counted ' + esc(dayText(f.prev)) : ''), f.opening) +
+    closeLine('Cash taken in today', f.cashIn, '+') + closeLine('Expenses paid from the till', f.exTill, '\u2212') +
     (f.out ? closeLine('Cash taken out', f.out, '\u2212') : '') + (f.put ? closeLine('Cash put in', f.put, '+') : '') +
     closeLine('Should be in the drawer', f.expected, '', true);
 
-  /* Opening cash — date & time lock when set */
-  h += '<div class="close-block"><div class="close-block-h">Opening cash</div>';
-  if ((rec && rec.opening != null) || d.openingAt) {
-    h += closeLine('Amount', rec && rec.opening != null ? num(rec.opening) : num(d.opening)) +
-      lockStampHtml('Date & time (locked)', d.openingAt || (rec && rec.openingAt) || (f.prev ? 'from yesterday\'s count' : '—'));
-  } else if (f.prev && !(rec && rec.opening != null)) {
-    h += '<p class="hint">Carried from yesterday\'s count: ' + n0(f.opening) + '. Set today\'s opening if the drawer was topped up.</p>' +
-      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="' + n0(f.opening) + '" aria-label="Opening cash" value="' + esc(d.opening) + '">' +
-      '<button type="button" class="btn secondary" data-act="set-opening">Set opening</button></div>';
-  } else {
-    h += '<label>Cash in the drawer when today began</label>' +
-      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="0" aria-label="Opening cash" value="' + esc(d.opening) + '">' +
-      '<button type="button" class="btn secondary" data-act="set-opening">Set opening</button></div>' +
-      '<p class="hint">Date and time lock automatically when you set it.</p>';
-  }
-  h += '</div>';
-
   if (CFG.CARD_AT_CLOSE) {
-    var cardRows = cf ? [] : syncCardDraft(f.iso);
-    var cardTotal = cf ? num(cf.total) : num(f.cardIn);
-    h += '<div class="close-block"><div class="close-block-h">Card machine</div>';
-    if (cf) {
-      h += '<p class="hint">Taken from the terminal\'s own record' + (blind ? '' : ', ' + n0(cf.total) + ' in ' + num(cf.n) + ' charges' + (cf.last ? ', last at ' + esc(cf.last) : '')) + '.</p>';
-    } else {
-      h += '<p class="hint">Every Card order is listed. Add a comment on any payment that had an issue, then Confirm All.</p>';
-      h += '<div class="xfer-list">';
-      if (!cardRows.length) h += '<p class="hint">No Card orders today.</p>';
-      cardRows.forEach(function (t, i) {
-        h += '<div class="xfer-row pay-row' + (t.note ? ' noted' : '') + '">' +
-          '<div class="xfer-thumb"><span>' + (i + 1) + '</span></div>' +
-          '<div class="xfer-fields">' +
-            '<div class="xfer-title"><span class="num">#' + pad(t.no) + '</span><b class="num">' + n0(t.amount) + '</b></div>' +
-            (t.customer && t.customer !== 'Walk-in' ? '<p class="hint">' + esc(t.customer) + '</p>' : '') +
-            (d.cardAt
-              ? (t.note ? '<div class="close-issue tight"><span>Issue note</span><p>' + esc(t.note) + '</p></div>' : '')
-              : '<input type="text" class="card-pay-note" data-cid="' + esc(String(t.id)) + '" maxlength="200" placeholder="Comment if issue with this payment" aria-label="Issue comment for #' + pad(t.no) + '" value="' + esc(t.note || '') + '">') +
-          '</div></div>';
-      });
-      h += '</div>';
-      h += closeLine(d.cardAt ? 'Confirmed total' : 'Till card total', num(d.card !== '' && d.cardAt ? d.card : cardTotal));
-      if (d.cardAt) {
-        h += lockStampHtml('Date & time (locked)', d.cardAt) +
-          (d.cardNote ? '<div class="close-issue"><span>Overall note</span><p>' + esc(d.cardNote) + '</p></div>' : '');
-      } else {
-        h += '<label for="cardNote">Overall comment (optional)</label>' +
-          '<textarea id="cardNote" class="close-note card-note" rows="2" maxlength="200" placeholder="Optional — e.g. machine declined twice, settled later">' + esc(d.cardNote || '') + '</textarea>' +
-          '<button type="button" class="btn secondary" data-act="confirm-card">Confirm All</button>';
-      }
-    }
-    h += '</div>';
-
-    var xfers = bf ? [] : syncTransferDraft(f.iso);
-    var xferNeed = xfers.filter(function (t) { return !t.url; }).length;
-    h += '<div class="close-block"><div class="close-block-h">Bank transfers</div>';
-    if (bf) {
-      h += '<p class="hint">Taken from the bank\'s own texts' + (blind ? '' : ', ' + n0(bf.total) + ' in ' + num(bf.n) + ' so far') + '.</p>';
-    } else {
-      h += '<p class="hint">Every Transfer order is listed. Upload that order\'s bank slip photo (e.g. order 590 → 590 receipt).</p>';
-      h += '<div class="xfer-list">';
-      if (!xfers.length) h += '<p class="hint">No Transfer orders today.</p>';
-      xfers.forEach(function (t, i) {
-        var busy = closeDraft.uploading === t.id;
-        h += '<div class="xfer-row' + (t.url ? ' ok' : '') + '">' +
-          '<div class="xfer-thumb">' + (t.url ? '<img src="' + esc(t.url) + '" alt="">' : '<span>' + (busy ? '…' : (i + 1)) + '</span>') + '</div>' +
-          '<div class="xfer-fields">' +
-            '<div class="xfer-title"><span class="num">#' + pad(t.no) + '</span><b class="num">' + n0(t.amount) + '</b></div>' +
-            (t.customer && t.customer !== 'Walk-in' ? '<p class="hint">' + esc(t.customer) + '</p>' : '') +
-            (t.at ? '<div class="close-lock tight"><span>Evidence logged</span><b>' + esc(t.at) + '</b></div>' : '') +
-            (d.transferAt
-              ? (t.note ? '<div class="close-issue tight"><span>Issue note</span><p>' + esc(t.note) + '</p></div>' : '')
-              : '<input type="text" class="xfer-note" data-xid="' + esc(String(t.id)) + '" maxlength="200" placeholder="Comment if issue with this payment" aria-label="Issue comment for #' + pad(t.no) + '" value="' + esc(t.note || '') + '">') +
-            '<div class="xfer-actions">' +
-              (d.transferAt ? '' :
-                '<label class="btn sm secondary xfer-pick">' + (t.url ? 'Change photo' : 'Upload evidence') +
-                  '<input type="file" class="xfer-file" accept="image/*" capture="environment" data-xid="' + esc(String(t.id)) + '"' + (busy ? ' disabled' : '') + '>' +
-                '</label>') +
-              (t.url && !d.transferAt ? '<button type="button" class="btn sm danger" data-act="xfer-photo-del" data-xid="' + esc(String(t.id)) + '">Remove photo</button>' : '') +
-            '</div>' +
-          '</div></div>';
-      });
-      h += '</div>';
-      h += closeLine('Transfer total', xferSum(xfers));
-      if (d.transferAt) {
-        h += lockStampHtml('Date & time (locked)', d.transferAt) +
-          (d.transferNote ? '<div class="close-issue"><span>Issue note</span><p>' + esc(d.transferNote) + '</p></div>' : '');
-      } else {
-        h += '<label>Comment if any transfer issue (before confirm)</label>' +
-          '<textarea class="close-note xfer-block-note" rows="2" maxlength="200" placeholder="Optional — overall bank transfer issues">' + esc(d.transferNote || '') + '</textarea>' +
-          '<p class="hint">' + (xferNeed ? xferNeed + ' still need a photo. ' : (xfers.length ? 'All slips have photos. ' : '')) + 'Confirm All locks date &amp; time.</p>' +
-          '<button type="button" class="btn secondary" data-act="confirm-xfer"' + (xferNeed ? ' disabled' : '') + '>Confirm All</button>';
-      }
-    }
-    h += '</div>';
+    h += (cf
+      ? '<p class="hint">Card machine: taken from the terminal\'s own record' + (isRole('till') && !closed ? '' : ', ' + n0(cf.total) + ' in ' + num(cf.n) + ' charges' + (cf.last ? ', last at ' + esc(cf.last) : '')) + '. Nothing to type.</p>'
+      : '<label>Meezan card: tonight\'s settlement slip (0 if none)</label>' +
+        '<div class="close-count"><input type="number" class="card-meezan-in" inputmode="numeric" min="0" placeholder="Meezan machine total" aria-label="Meezan card batch total" value="' + (closed && rec.cardMeezanCounted != null ? num(rec.cardMeezanCounted) : esc(d.cardMeezan)) + '"></div>' +
+        '<label>Faysal card: tonight\'s settlement slip (0 if none)</label>' +
+        '<div class="close-count"><input type="number" class="card-faysal-in" inputmode="numeric" min="0" placeholder="Faysal machine total" aria-label="Faysal card batch total" value="' + (closed && rec.cardFaysalCounted != null ? num(rec.cardFaysalCounted) : esc(d.cardFaysal)) + '"></div>') +
+      (bf
+        ? '<p class="hint">Bank transfers: taken from the bank\'s own texts' + (isRole('till') && !closed ? '' : ', ' + n0(bf.total) + ' in ' + num(bf.n) + ' so far') + '. Nothing to type.</p>'
+        : '<label>Bank transfers received today, from the bank app (0 if none)</label>' +
+          '<div class="close-count"><input type="number" class="transfer-in" inputmode="numeric" min="0" placeholder="From the bank, not from the till" aria-label="Bank transfers received" value="' + (closed && rec.transferCounted != null ? num(rec.transferCounted) : esc(d.transfer)) + '"></div>');
   }
 
-  h += '<div class="close-block"><div class="close-block-h">Till cash at day end</div>' +
-    '<label>How much cash is in the till now</label><div class="close-count">' +
-    '<input type="number" class="count-in" inputmode="numeric" min="0" placeholder="Count it, then type the total" aria-label="Cash in till" value="' + esc(d.counted) + '">' +
-    '<button type="button" class="btn primary" data-act="close-day">' + (closed ? 'Close again' : 'Close the day') + '</button></div></div>';
-
-  if (closed || (rec && rec.opening != null && rec.counted != null)) h += closeStatsHtml(f, rec || {
-    opening: num(d.opening), cardCounted: num(d.card), transferCounted: xferSum(d.transfers), transfers: d.transfers, counted: num(d.counted), cardAt: d.cardAt
-  });
+  h += '<label>Cash counted in the drawer</label><div class="close-count">' +
+    '<input type="number" class="count-in" inputmode="numeric" min="0" placeholder="Count it, then type the total" aria-label="Cash counted" value="' + esc(d.counted) + '">' +
+    '<button type="button" class="btn primary" data-act="close-day">' + (closed ? 'Close again' : 'Close the day') + '</button></div>';
 
   if (closed && CFG.CARD_AT_CLOSE && rec.cardCounted != null) {
-    [['Card', rec.cardCounted, rec.cardExpected, 'the machine settled'], ['Transfer', rec.transferCounted, rec.transferExpected, 'the bank slips show']].forEach(function (x) {
+    if (rec.cardMeezanCounted != null || rec.cardFaysalCounted != null) {
+      h += '<p class="hint">Card machines: Meezan ' + n0(rec.cardMeezanCounted) + ' + Faysal ' + n0(rec.cardFaysalCounted) + ' = ' + n0(rec.cardCounted) + '</p>';
+    }
+    [['Card', rec.cardCounted, rec.cardExpected, 'the machines settled'], ['Transfer', rec.transferCounted, rec.transferExpected, /^bank/.test(rec.transferFrom || '') ? 'the bank\'s texts (' + esc(String(rec.transferFrom).replace('bank texts, ', 'up ')) + ') show' : 'the bank shows']].forEach(function (x) {
       var gap = num(x[2]) - num(x[1]);
       h += '<div class="overshort ' + (gap === 0 ? 'ok' : 'off') + '">' + x[0] + ': the till rang ' + n0(x[2]) + ', ' + x[3] + ' ' + n0(x[1]) + '. ' +
         (gap === 0 ? 'They match.' : gap > 0 ? money(gap) + ' was rung as ' + x[0].toLowerCase() + ' but did not arrive.' : money(-gap) + ' arrived that the till did not ring.') + '</div>';
@@ -2238,7 +2187,9 @@ function renderDays() {
     h += '<div class="row"><div class="row-main"><h3>' + esc(niceDay(new Date(+p[0], +p[1] - 1, +p[2]))) +
       ' <span class="badge ' + (diff === 0 ? 'Cash' : 'Unpaid') + '">' + (diff === 0 ? 'matched' : (diff > 0 ? 'over ' : 'short ') + n0(Math.abs(diff))) + '</span></h3>' +
       '<p>Should have been ' + n0(d.expected) + ', counted ' + n0(d.counted) + (d.by ? ', closed by ' + esc(d.by) : '') + '</p>' +
-      (d.cardCounted != null ? '<p>Card: rung ' + n0(d.cardExpected) + ', machine ' + n0(d.cardCounted) + (num(d.cardExpected) !== num(d.cardCounted) ? ' <span class="badge Unpaid">differs by ' + n0(Math.abs(num(d.cardExpected) - num(d.cardCounted))) + '</span>' : '') +
+      (d.cardCounted != null ? '<p>Card: rung ' + n0(d.cardExpected) + ', machines ' + n0(d.cardCounted) +
+        (d.cardMeezanCounted != null || d.cardFaysalCounted != null ? ' (Meezan ' + n0(d.cardMeezanCounted) + ' + Faysal ' + n0(d.cardFaysalCounted) + ')' : '') +
+        (num(d.cardExpected) !== num(d.cardCounted) ? ' <span class="badge Unpaid">differs by ' + n0(Math.abs(num(d.cardExpected) - num(d.cardCounted))) + '</span>' : '') +
         '. Transfer: rung ' + n0(d.transferExpected) + ', bank ' + n0(d.transferCounted) + (num(d.transferExpected) !== num(d.transferCounted) ? ' <span class="badge Unpaid">differs by ' + n0(Math.abs(num(d.transferExpected) - num(d.transferCounted))) + '</span>' : '') + '</p>' : '') + '</div>' +
       '<div class="row-side"><button type="button" class="btn sm secondary" data-act="copy-report" data-iso="' + esc(d.iso) + '">Copy report</button></div></div>';
   });
@@ -3250,27 +3201,78 @@ function voidOrder(id, okId, whyKept) {
   commit('voided', r.id); closeModal(); refreshAll();
   toast('Order #' + pad(o.no) + ' voided, kept on record');
 }
-function addExpense(nameId, amtId, by, till, type, stockId, qtyId) {
-  var n = $(nameId).value.trim(), a = parseFloat($(amtId).value);
+function expLineHtml() {
+  return '<div class="exp-line">' +
+    '<input type="text" class="exp-item-name" placeholder="Item name" maxlength="40" aria-label="Item name">' +
+    '<input type="number" class="exp-item-amt" inputmode="numeric" min="0" placeholder="Rate" aria-label="Rate">' +
+    '<button type="button" class="btn sm quiet exp-line-x" data-act="exp-line-del" aria-label="Remove item">×</button></div>';
+}
+function readExpLines(linesId) {
+  var box = $(linesId); if (!box) return [];
+  var out = [];
+  [].forEach.call(box.querySelectorAll('.exp-line'), function (row) {
+    var n = txt(((row.querySelector('.exp-item-name') || {}).value || '').trim(), 40);
+    var a = parseFloat((row.querySelector('.exp-item-amt') || {}).value);
+    if (!n && !(a > 0)) return;
+    out.push({ n: n, a: isNaN(a) || a < 0 ? 0 : a });
+  });
+  return out;
+}
+function expLinesTotal(lines) { return sumOf(lines || [], function (x) { return num(x.a); }); }
+function updateExpTotal(form) {
+  var lines = readExpLines(form === 'o' ? 'oExpLines' : 'bExpLines');
+  var el = $(form === 'o' ? 'oExpTotal' : 'bExpTotal');
+  if (el) el.textContent = n0(expLinesTotal(lines));
+}
+function addExpLineRow(form) {
+  var box = $(form === 'o' ? 'oExpLines' : 'bExpLines'); if (!box) return;
+  box.insertAdjacentHTML('beforeend', expLineHtml());
+  var rows = box.querySelectorAll('.exp-line');
+  var last = rows[rows.length - 1], inp = last && last.querySelector('.exp-item-name');
+  if (inp) inp.focus();
+  updateExpTotal(form);
+}
+function clearExpLines(form) {
+  var box = $(form === 'o' ? 'oExpLines' : 'bExpLines'); if (!box) return;
+  box.innerHTML = expLineHtml();
+  updateExpTotal(form);
+}
+function expenseItemsText(e) {
+  if (!e || !Array.isArray(e.items) || !e.items.length) return '';
+  return e.items.map(function (x) { return x.n + ' ' + n0(x.a); }).join(', ');
+}
+function addExpense(form, by, till, type) {
+  var linesId = form === 'o' ? 'oExpLines' : 'bExpLines';
+  var stockId = form === 'o' ? 'oExpStock' : 'bExpStock';
+  var qtyId = form === 'o' ? 'oExpQty' : 'bExpQty';
+  var lineSel = $(form === 'o' ? 'oExpLine' : 'bExpLine');
+  var lines = readExpLines(linesId), i;
+  for (i = 0; i < lines.length; i++) {
+    if (!lines[i].n || !(lines[i].a > 0)) { toast('Each item needs a name and its rate'); return; }
+  }
+  if (!lines.length) { toast('Add at least one item and its rate'); return; }
+  var a = expLinesTotal(lines), n = txt(lines.map(function (x) { return x.n; }).join(', '), 80);
   var item = stockById(num($(stockId).value)), gotResult = item ? enteredQuantity(item, qtyId) : null, got = gotResult && gotResult.q;
   if (item && !gotResult) return;
-  if (item && !n) n = item.name;
-  if (!n || !a || a <= 0) { toast('Fill in what was bought and the amount'); return; }
   if (item && !(got > 0)) { toast('Type how much ' + item.name + ' arrived, in ' + item.unit); return; }
   if (till && needsOk('expense') && !addExpense.ok) {
     var eid = newId();
-    approve('expense', eid, a, 'Paid from the drawer: ' + n + ', ' + money(a), function (k) { addExpense.ok = k; addExpense.id = eid; addExpense(nameId, amtId, by, till, type, stockId, qtyId); });
+    approve('expense', eid, a, 'Paid from the drawer: ' + n + ', ' + money(a), function (k) { addExpense.ok = k; addExpense.id = eid; addExpense(form, by, till, type); });
     return;
   }
-  var e = { id: addExpense.id || newId(), name: n, amount: a, date: localeDay(), iso: isoNow(), time: timeNow(), till: till, type: type === 'run' ? 'run' : 'stock', u: nowMs() };
+  var e = {
+    id: addExpense.id || newId(), name: n, amount: a, date: localeDay(), iso: isoNow(), time: timeNow(),
+    till: till, type: type === 'run' ? 'run' : 'stock', u: nowMs(),
+    items: lines.map(function (x) { return { n: x.n, a: num(x.a) }; })
+  };
   if (addExpense.ok) { e.ok = addExpense.ok; addExpense.ok = addExpense.id = null; }
-  var lineSel = $(nameId === 'bExpName' ? 'bExpLine' : 'oExpLine');
   if (lineSel && lineSel.value) e.line = txt(lineSel.value, 20);
   if (by) e.by = (role === 'owner') ? by : whoName();
   if (item) { e.s = item.id; e.q = got; e.type = 'stock'; }
   expenses.push(e);
   commit('expenses', e.id);
-  $(nameId).value = ''; $(amtId).value = ''; $(stockId).value = ''; $(qtyId).value = ''; $(qtyId).classList.add('hidden'); configureQuantity(null, qtyId);
+  clearExpLines(form);
+  $(stockId).value = ''; $(qtyId).value = ''; $(qtyId).classList.add('hidden'); configureQuantity(null, qtyId);
   if (lineSel) lineSel.value = '';
   refreshAll(); toast(item ? 'Expense added, and ' + countText(item.id, got) + ' of ' + item.name + ' added to stock' : 'Expense added');
 }
@@ -3424,7 +3426,10 @@ function renderTill() {
   $('bsTop').innerHTML = h || none('Nothing sold yet today.');
   h = '';
   for (var i = ex.length - 1; i >= 0; i--) {
-    h += '<div class="row"><div class="row-main"><h3>' + esc(ex[i].name) + '</h3><p>Logged by ' + esc(ex[i].by || 'Owner') + ' at ' + esc(shortTime(ex[i])) +
+    var bx = expenseItemsText(ex[i]);
+    h += '<div class="row"><div class="row-main"><h3>' + esc(ex[i].name) + '</h3><p>' +
+      (bx && ex[i].items && ex[i].items.length > 1 ? esc(bx) + '. ' : '') +
+      'Logged by ' + esc(ex[i].by || 'Owner') + ' at ' + esc(shortTime(ex[i])) +
       (ex[i].till === false ? ', not from the till' : '') + '</p></div><div class="row-side"><span class="row-amt">−' + n0(ex[i].amount) + '</span></div></div>';
   }
   $('bsExpList').innerHTML = h || none('None logged today.');
@@ -3718,8 +3723,10 @@ function renderOwner() {
 
   h = '';
   for (i = ex.length - 1; i >= 0; i--) {
-    var e = ex[i];
-    h += '<div class="row"><div class="row-main"><h3>' + esc(e.name) + '</h3><p>' + (period === 'month' ? esc(dayText(e)) + ', ' : '') + esc(shortTime(e)) + ', ' + (e.type === 'run' ? 'running cost' : 'stock') + ', logged by ' + esc(e.by || 'Owner') +
+    var e = ex[i], bits = expenseItemsText(e);
+    h += '<div class="row"><div class="row-main"><h3>' + esc(e.name) + '</h3><p>' +
+      (bits && e.items && e.items.length > 1 ? esc(bits) + '. ' : '') +
+      (period === 'month' ? esc(dayText(e)) + ', ' : '') + esc(shortTime(e)) + ', ' + (e.type === 'run' ? 'running cost' : 'stock') + ', logged by ' + esc(e.by || 'Owner') +
       (e.till === false ? ', not from the till' : '') + '</p></div><div class="row-side"><span class="row-amt">−' + n0(e.amount) + '</span>' +
       '<button type="button" class="btn sm danger" data-act="ask-del-exp" data-id="' + e.id + '">Delete</button></div></div>';
   }
@@ -4152,112 +4159,42 @@ function onClick(ev) {
       var oin = oCard.querySelector('.open-in'), ov = parseFloat(oin && oin.value);
       if (isNaN(ov) || ov < 0) { toast('Type the cash the day began with'); break; }
       if (oin) oin.blur();
-      ensureCloseDraft().opening = String(ov);
-      ensureCloseDraft().openingAt = dayStampNow();
-      persistCloseDraft({ opening: ov, openingAt: ensureCloseDraft().openingAt });
-      closeDraft = null; refreshAll(); toast('Opening cash locked with date & time');
-      break;
-    case 'confirm-card':
-      syncDraftFromDom(el.closest('.close-card'));
-      syncCardDraft(isoNow());
-      syncDraftFromDom(el.closest('.close-card'));
-      var cardTot = num(dayFigures(isoNow()).cardIn);
-      ensureCloseDraft().card = String(cardTot);
-      ensureCloseDraft().cardAt = dayStampNow();
-      persistCloseDraft({
-        cardCounted: cardTot,
-        cardAt: ensureCloseDraft().cardAt,
-        cardNote: txt(ensureCloseDraft().cardNote || '', 200),
-        cards: ensureCloseDraft().cards
-      });
-      closeDraft = null; refreshAll(); toast('Card total confirmed and locked');
-      break;
-    case 'confirm-xfer':
-      syncDraftFromDom(el.closest('.close-card'));
-      syncTransferDraft(isoNow());
-      syncDraftFromDom(el.closest('.close-card'));
-      var miss = ensureCloseDraft().transfers.filter(function (t) { return !t.url; });
-      if (miss.length) { toast('Upload evidence for every Transfer order first'); break; }
-      ensureCloseDraft().transferAt = dayStampNow();
-      persistCloseDraft({
-        transferAt: ensureCloseDraft().transferAt,
-        transferCounted: xferSum(ensureCloseDraft().transfers),
-        transferNote: txt(ensureCloseDraft().transferNote || '', 200)
-      });
-      closeDraft = null; refreshAll(); toast('Bank transfers confirmed and locked');
-      break;
-    case 'xfer-photo-del':
-      syncDraftFromDom(el.closest('.close-card'));
-      var xidDel = el.getAttribute('data-xid'), rowDel = null;
-      ensureCloseDraft().transfers.forEach(function (t) { if (String(t.id) === String(xidDel)) rowDel = t; });
-      if (!rowDel || !rowDel.url) break;
-      if (ensureCloseDraft().transferAt) { toast('Transfers already confirmed'); break; }
-      deleteCloseImage(rowDel.publicId || rowDel.url, function (delErr) {
-        if (delErr) toast(delErr);
-        rowDel.url = ''; rowDel.publicId = ''; rowDel.at = '';
-        persistCloseDraft(); closeDraft = null; refreshAll();
-        toast(delErr ? 'Photo cleared (Cloudinary: ' + delErr + ')' : 'Photo removed from app and Cloudinary');
-      });
+      saveDay(isoNow(), { opening: ov }); closeDraft = null; refreshAll(); toast('Opening cash set');
       break;
     case 'close-day':
       var closeEl = el.closest('.close-card'); syncDraftFromDom(closeEl);
       var cin = closeEl.querySelector('.count-in'), cv = parseFloat(cin && cin.value), fg = dayFigures(isoNow());
-      if (isNaN(cv) || cv < 0) { toast('Count the till cash and type the total first'); break; }
+      if (isNaN(cv) || cv < 0) { toast('Count the drawer and type the total first'); break; }
       if (cin) cin.blur();
-      var cardV = null, transV = null, xfers = [];
-      var dOpen = ensureCloseDraft();
-      if (!(dayRec(isoNow()) && dayRec(isoNow()).opening != null) && !(dOpen.openingAt && dOpen.opening !== '') && !fg.prev) {
-        toast('Set opening cash first'); break;
-      }
+      var cardV = null, meezanV = null, faysalV = null, transV = null;
       if (CFG.CARD_AT_CLOSE) {
+        var meezanEl = closeEl.querySelector('.card-meezan-in'), faysalEl = closeEl.querySelector('.card-faysal-in');
+        var transEl = closeEl.querySelector('.transfer-in');
         var bf = bankFeed(isoNow()), cf = cardFeed(isoNow());
-        if (cf) cardV = num(cf.total);
-        else {
-          if (!dOpen.cardAt) { toast('Confirm All on Card machine first'); break; }
-          cardV = num(dOpen.card);
+        if (cf) {
+          cardV = num(cf.total);
+        } else {
+          meezanV = parseFloat(meezanEl ? meezanEl.value : '');
+          faysalV = parseFloat(faysalEl ? faysalEl.value : '');
+          if (isNaN(meezanV) || meezanV < 0) { toast('Type the Meezan card total, or 0'); if (meezanEl) meezanEl.focus(); break; }
+          if (isNaN(faysalV) || faysalV < 0) { toast('Type the Faysal card total, or 0'); if (faysalEl) faysalEl.focus(); break; }
+          cardV = meezanV + faysalV;
         }
-        if (bf) { transV = num(bf.total); xfers = []; }
-        else {
-          syncTransferDraft(isoNow());
-          xfers = (ensureCloseDraft().transfers || []).map(function (t) {
-            return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', url: t.url || '', publicId: t.publicId || '', at: t.at || '' };
-          });
-          var bad = xfers.filter(function (t) { return !t.url; });
-          if (bad.length) { toast('Upload evidence for every Transfer order'); break; }
-          if (!dOpen.transferAt && xfers.length) { toast('Confirm All on Bank transfers first'); break; }
-          if (!dOpen.transferAt && !xfers.length) {
-            dOpen.transferAt = dayStampNow();
-          }
-          transV = xferSum(xfers);
-        }
+        transV = bf ? num(bf.total) : parseFloat(transEl ? transEl.value : '');
+        if (isNaN(transV) || transV < 0) { toast('Type the bank transfers received, or 0'); if (transEl) transEl.focus(); break; }
       }
       if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       var recNow = dayRec(isoNow()), shut = function (k) {
-        var openAmt = recNow && recNow.opening != null ? num(recNow.opening) : num(dOpen.opening);
-        var patch = {
-          opening: openAmt,
-          openingAt: (recNow && recNow.openingAt) || dOpen.openingAt || dayStampNow(),
-          expected: fg.expected,
-          counted: cv,
-          by: whoName(),
-          closedAt: timeNow()
-        };
-        if (k) patch.ok = k;
+        var patch = { opening: fg.opening, expected: fg.expected, counted: cv, by: whoName(), closedAt: timeNow() }; if (k) patch.ok = k;
         if (cardV != null) {
           patch.cardCounted = cardV;
-          patch.cardAt = cf ? (cf.last || dayStampNow()) : (dOpen.cardAt || dayStampNow());
-          patch.cardNote = txt(dOpen.cardNote || (recNow && recNow.cardNote) || '', 200);
-          patch.cards = (dOpen.cards || []).map(function (t) {
-            return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', note: txt(t.note || '', 200) };
-          });
+          if (meezanV != null) patch.cardMeezanCounted = meezanV;
+          if (faysalV != null) patch.cardFaysalCounted = faysalV;
           patch.transferCounted = transV;
-          patch.transfers = xfers;
-          patch.transferAt = bf ? (bf.last || dayStampNow()) : (dOpen.transferAt || dayStampNow());
-          patch.transferNote = txt(dOpen.transferNote || (recNow && recNow.transferNote) || '', 200);
           patch.cardExpected = fg.cardIn;
           patch.transferExpected = fg.transferIn;
-          patch.transferFrom = bf ? 'bank texts, to ' + txt(bf.last, 5) : 'order evidence';
-          patch.cardFrom = cf ? 'terminal record, to ' + txt(cf.last, 5) : 'till confirm';
+          patch.transferFrom = bankFeed(isoNow()) ? 'bank texts, to ' + txt(bankFeed(isoNow()).last, 5) : 'typed';
+          patch.cardFrom = cardFeed(isoNow()) ? 'terminal record, to ' + txt(cardFeed(isoNow()).last, 5) : 'typed (Meezan + Faysal)';
         }
         saveDay(isoNow(), patch); closeDraft = null; refreshAll();
         toast(cv === fg.expected ? 'Day closed. The drawer matches.' : 'Day closed. The drawer is ' + (cv > fg.expected ? 'over' : 'short') + ' by ' + money(Math.abs(cv - fg.expected)));
@@ -4382,6 +4319,19 @@ function onClick(ev) {
       break;
     case 'confirm-void': voidOrder(id); break;
     case 'ask-del-exp': askDelExpense(id); break;
+    case 'exp-line-add':
+      addExpLineRow(el.getAttribute('data-form') === 'o' ? 'o' : 'b');
+      break;
+    case 'exp-line-del':
+      var expRow = el.closest('.exp-line'), expBox = el.closest('.exp-lines'), expForm = expBox && expBox.getAttribute('data-form');
+      if (expBox && expRow) {
+        if (expBox.querySelectorAll('.exp-line').length <= 1) {
+          var nm = expRow.querySelector('.exp-item-name'), am = expRow.querySelector('.exp-item-amt');
+          if (nm) nm.value = ''; if (am) am.value = '';
+        } else expRow.remove();
+        updateExpTotal(expForm === 'o' ? 'o' : 'b');
+      }
+      break;
     case 'confirm-del-exp': delExpense(id); break;
     case 'sync': syncNow(); break;
     case 'test-sync': testSync(); break;
@@ -4415,37 +4365,6 @@ function init() {
     }).join('');
   });
   document.addEventListener('click', onClick);
-  document.addEventListener('change', function (ev) {
-    var t = ev.target;
-    if (!t || !t.classList.contains('xfer-file')) return;
-    var xid = t.getAttribute('data-xid'), file = t.files && t.files[0];
-    t.value = '';
-    if (!file) return;
-    if (ensureCloseDraft().transferAt) { toast('Transfers already confirmed'); return; }
-    syncTransferDraft(isoNow());
-    var draft = ensureCloseDraft(), prev = null;
-    draft.transfers.forEach(function (row) { if (String(row.id) === String(xid)) prev = row; });
-    draft.uploading = xid;
-    renderCloseCard('closeB'); renderCloseCard('closeO');
-    resizeImageFile(file, function (dataUrl, err) {
-      if (err || !dataUrl) { draft.uploading = null; toast(err || 'Photo failed'); refreshAll(); return; }
-      uploadCloseImage(dataUrl, function (upErr, url, publicId) {
-        if (upErr || !url) { draft.uploading = null; toast(upErr || 'Upload failed'); refreshAll(); return; }
-        var finish = function () {
-          draft.uploading = null;
-          draft.transfers.forEach(function (row) {
-            if (String(row.id) === String(xid)) {
-              row.url = url; row.publicId = publicId || ''; row.at = timeNow();
-            }
-          });
-          persistCloseDraft(); closeDraft = null; refreshAll(); toast('Evidence saved for #' + (prev && prev.no ? pad(prev.no) : ''));
-        };
-        if (prev && (prev.publicId || prev.url)) {
-          deleteCloseImage(prev.publicId || prev.url, function () { finish(); });
-        } else finish();
-      });
-    });
-  });
   document.addEventListener('keydown', function (ev) {
     lastActive = Date.now();
     if (ev.key === 'Escape' && !$('modal').classList.contains('hidden')) { closeModal(); return; }
@@ -4476,12 +4395,18 @@ function init() {
     if (!ev.target.closest || !ev.target.closest('#rcvList')) return;
     updateReceiveTotals();
   });
+  document.addEventListener('input', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList || !(t.classList.contains('exp-item-name') || t.classList.contains('exp-item-amt'))) return;
+    var box = t.closest('.exp-lines');
+    updateExpTotal(box && box.getAttribute('data-form') === 'o' ? 'o' : 'b');
+  });
   bindSeg('periodSeg', function (v) { period = v; renderOwner(); });
   bindSeg('voidSeg', function (v) { voidAll = v === 'all'; renderVoid(); });
   bindSeg('paperSeg', function (v) { paper80 = v === '80'; save(); toast('Receipts set to ' + v + ' mm paper'); });
   $('matchaMode').addEventListener('change', function () { matchaLocal = this.value === 'local'; save(); toast('Matcha cost updated'); });
-  $('bExpForm').addEventListener('submit', function (ev) { ev.preventDefault(); addExpense('bExpName', 'bExpAmt', 'Barista', true, ui.bExpType, 'bExpStock', 'bExpQty'); });
-  $('oExpForm').addEventListener('submit', function (ev) { ev.preventDefault(); addExpense('expName', 'expAmt', '', $('expTill').checked, ui.oExpType, 'oExpStock', 'oExpQty'); $('expTill').checked = true; });
+  $('bExpForm').addEventListener('submit', function (ev) { ev.preventDefault(); addExpense('b', 'Barista', true, ui.bExpType); });
+  $('oExpForm').addEventListener('submit', function (ev) { ev.preventDefault(); addExpense('o', '', $('expTill').checked, ui.oExpType); $('expTill').checked = true; });
   window.addEventListener('resize', measureTop);
   window.addEventListener('storage', function (ev) {
     if (ev.key === AUTH_KEY) { loadAuth(); return; }

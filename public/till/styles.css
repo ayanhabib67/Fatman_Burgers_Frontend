@@ -128,6 +128,10 @@ input[type=text],input[type=number],input[type=password],input[type=search],inpu
 input:focus,select:focus{outline:none;border-color:var(--espresso);box-shadow:0 0 0 2px var(--espresso)}
 .form{display:flex;flex-direction:column;gap:8px}
 .form .field-l{margin-top:6px}
+.exp-lines{display:flex;flex-direction:column;gap:8px}
+.exp-line{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,.85fr) auto;gap:8px;align-items:center}
+.exp-line .exp-line-x{min-width:48px;width:48px;padding:0}
+.exp-total b{color:var(--espresso)}
 .check{display:flex;align-items:center;gap:10px;min-height:44px;color:var(--espresso)!important;font-size:15px!important}
 .check input{width:22px;height:22px;accent-color:var(--espresso)}
 .hint{font-size:13.5px;color:var(--mocha)}
