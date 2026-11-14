@@ -1574,7 +1574,7 @@ function billPlease(id) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid') return;
   o.bill = nowMs(); stamp(o); commit('orders', o.id); refreshAll(); toast('The till has been asked for the bill of #' + pad(o.no));
 }
-var WAITER_NO = ['ask-void', 'confirm-void', 'ask-paid', 'paid-by', 'discount', 'apply-disc', 'charge', 'reprint', 'reslip', 'rekitchen', 'custom', 'move-add', 'move-del',
+var WAITER_NO = ['ask-void', 'confirm-void', 'ask-paid', 'paid-by', 'discount', 'apply-disc', 'charge', 'reprint', 'reprint-by', 'reslip', 'rekitchen', 'custom', 'move-add', 'move-del',
   'close-day', 'set-opening', 'loyal-add', 'count-ask', 'waste-ask', 'outs-ask', 'pay-now', 'vdel-ask'];
 function blockedForMe(act) {
   if (!rolesOn || role !== 'barista') return false;
@@ -2786,6 +2786,41 @@ function receiptHtml(o) {
 }
 function findOrder(id) { for (var i = 0; i < orders.length; i++) if (orders[i].id === id) return orders[i]; return null; }
 function reprint(id) { var o = findOrder(id); if (o) printReceipt(o); }
+function askReprint(id) {
+  var o = findOrder(id); if (!o || o.payment === 'Unpaid') return;
+  var due = num(o.total);
+  openModal(
+    '<div class="paid-sheet">' +
+      '<div class="paid-hero">' +
+        '<p class="paid-kicker">Reprint receipt</p>' +
+        '<h2 id="modalTitle" class="paid-title">Order <span class="num">#' + pad(o.no) + '</span></h2>' +
+        '<div class="paid-sub"><span>Amount</span><b class="num">' + n0(due) + '</b></div>' +
+      '</div>' +
+      '<div class="paid-block">' +
+        '<div class="paid-block-h">How was this paid?</div>' +
+        '<p class="paid-hint">Tap a method to print the receipt</p>' +
+        '<div class="pay-pick">' + ['Cash', 'Card', 'Transfer'].map(function (m) {
+          return '<button type="button" class="pay-opt pay-opt-solo' + (o.payment === m ? ' on' : '') + '" data-act="reprint-by" data-v="' + m + '" data-id="' + o.id + '">' +
+            '<span class="pay-opt-m">' + m + '</span></button>';
+        }).join('') + '</div>' +
+      '</div>' +
+      '<button type="button" class="btn quiet paid-cancel" data-act="close-modal">Cancel</button>' +
+    '</div>',
+  'paid-modal');
+}
+function reprintBy(id, method) {
+  var o = findOrder(id); if (!o || o.payment === 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
+  if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
+  if (o.payment !== method) {
+    o.payment = method;
+    stamp(o);
+    commit('orders', o.id);
+    refreshAll();
+  }
+  closeModal();
+  printReceipt(o);
+  toast('Receipt reprinted · ' + method);
+}
 function reslip(id) { var o = findOrder(id); if (o) printSlip(o); }
 /* ---- Changing an order after it is punched (12 Oct 2026). Every change needs a reason and is kept with who and when.
    An unpaid order is changed in place (edits[] on the order). A paid order is never rewritten: the change becomes a linked
@@ -4304,7 +4339,8 @@ function onClick(ev) {
     case 'clear-waiter': setWaiter(''); closeModal(); break;
     case 'save-custom': addCustom(); break;
     case 'close-modal': closeModal(); break;
-    case 'reprint': reprint(id); break;
+    case 'reprint': askReprint(id); break;
+    case 'reprint-by': reprintBy(id, el.getAttribute('data-v')); break;
     case 'reslip': reslip(id); break;
     case 'ask-paid': askPaid(id); break;
     case 'paid-by': markPaid(id, el.getAttribute('data-v')); break;
