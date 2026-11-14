@@ -374,10 +374,14 @@ function load() {
     var wipeKey = 'pos_wipe_orders' + SUF;
     if (wipeTok && localStorage.getItem(wipeKey) !== wipeTok) {
       Object.keys(outbox).forEach(function (k) {
-        if (k.indexOf('orders:') === 0 || k.indexOf('voided:') === 0) delete outbox[k];
+        if (/^(orders|voided|expenses|days|moves):/.test(k)) delete outbox[k];
       });
       orders = [];
       voided = [];
+      expenses = [];
+      more.days = [];
+      more.moves = [];
+      closeDraft = null;
       seq = 0;
       dirty = false;
       localStorage.setItem(wipeKey, wipeTok);
@@ -1886,40 +1890,323 @@ function bankFeed(iso) { for (var i = 0; i < more.feed.length; i++) if (more.fee
 /* The card machine's own record (13 Oct 2026): the server posts a 'feed' row (kind card, one per trading day) from the merchant
    portal: charges approved, their total, the last one's time. When it is there, nobody types the batch total at close. */
 function cardFeed(iso) { for (var i = 0; i < more.feed.length; i++) if (more.feed[i].kind === 'card' && more.feed[i].day === iso) return more.feed[i]; return null; }
+
+/* ---- Day close draft (opening / card confirm / transfer evidence) ---- */
+var closeDraft = null;
+function xferSum(list) {
+  return sumOf(list || [], function (x) { return num(x.amount); });
+}
+function lockStampHtml(label, when) {
+  return '<div class="close-lock"><span>' + esc(label) + '</span><b>' + esc(when || '—') + '</b></div>';
+}
+function dayStampNow() {
+  return bizLabel().replace(/^Trading day\s+/i, '') + ' · ' + timeNow();
+}
+function dayPayOrders(iso, pay) {
+  return orders.filter(function (o) {
+    return !o.adj && o.payment === pay && (o.paidIso || o.iso) === iso;
+  }).sort(function (a, b) { return a.no - b.no; });
+}
+function mergePayNotes(list, savedList) {
+  var saved = {};
+  (list || []).forEach(function (t) { saved[String(t.id)] = t; });
+  (savedList || []).forEach(function (t) {
+    if (!saved[String(t.id)]) saved[String(t.id)] = copy(t);
+    else saved[String(t.id)] = Object.assign({}, saved[String(t.id)], t, {
+      note: saved[String(t.id)].note || t.note || '',
+      url: saved[String(t.id)].url || t.url || '',
+      publicId: saved[String(t.id)].publicId || t.publicId || '',
+      at: saved[String(t.id)].at || t.at || ''
+    });
+  });
+  return saved;
+}
+function syncCardDraft(iso) {
+  var d = ensureCloseDraft();
+  var rec = dayRec(iso);
+  var saved = mergePayNotes(d.cards, rec && rec.cards);
+  d.cards = dayPayOrders(iso, 'Card').map(function (o) {
+    var prev = saved[String(o.id)] || {};
+    return {
+      id: o.id,
+      no: o.no,
+      amount: o.total,
+      customer: o.customer || '',
+      note: prev.note || ''
+    };
+  });
+  return d.cards;
+}
+function syncTransferDraft(iso) {
+  var d = ensureCloseDraft();
+  var rec = dayRec(iso);
+  var saved = mergePayNotes(d.transfers, rec && rec.transfers);
+  d.transfers = dayPayOrders(iso, 'Transfer').map(function (o) {
+    var prev = saved[String(o.id)] || {};
+    return {
+      id: o.id,
+      no: o.no,
+      amount: o.total,
+      customer: o.customer || '',
+      url: prev.url || '',
+      publicId: prev.publicId || '',
+      at: prev.at || '',
+      note: prev.note || ''
+    };
+  });
+  return d.transfers;
+}
+function ensureCloseDraft() {
+  var iso = isoNow(), rec = dayRec(iso);
+  if (!closeDraft || closeDraft.iso !== iso) {
+    closeDraft = {
+      iso: iso,
+      opening: rec && rec.opening != null ? String(num(rec.opening)) : '',
+      openingAt: (rec && rec.openingAt) || '',
+      card: rec && rec.cardCounted != null ? String(num(rec.cardCounted)) : '',
+      cardAt: (rec && rec.cardAt) || '',
+      cardNote: (rec && rec.cardNote) || '',
+      cards: rec && Array.isArray(rec.cards) ? copy(rec.cards) : [],
+      transfers: rec && Array.isArray(rec.transfers) ? copy(rec.transfers) : [],
+      transferAt: (rec && rec.transferAt) || '',
+      transferNote: (rec && rec.transferNote) || '',
+      counted: rec && rec.counted != null ? String(num(rec.counted)) : '',
+      uploading: null
+    };
+  }
+  return closeDraft;
+}
+function syncDraftFromDom(card) {
+  if (!card || !closeDraft) return;
+  var o = card.querySelector('.open-in'); if (o && document.activeElement !== o) closeDraft.opening = o.value;
+  var n = card.querySelector('.count-in'); if (n && document.activeElement !== n) closeDraft.counted = n.value;
+  var cn = card.querySelector('.card-note'); if (cn && document.activeElement !== cn) closeDraft.cardNote = cn.value;
+  var tn = card.querySelector('.xfer-block-note'); if (tn && document.activeElement !== tn) closeDraft.transferNote = tn.value;
+  [].forEach.call(card.querySelectorAll('.card-pay-note'), function (inp) {
+    var id = inp.getAttribute('data-cid');
+    if (document.activeElement === inp) return;
+    closeDraft.cards.forEach(function (t) {
+      if (String(t.id) === String(id)) t.note = inp.value;
+    });
+  });
+  [].forEach.call(card.querySelectorAll('.xfer-note'), function (inp) {
+    var id = inp.getAttribute('data-xid');
+    if (document.activeElement === inp) return;
+    closeDraft.transfers.forEach(function (t) {
+      if (String(t.id) === String(id)) t.note = inp.value;
+    });
+  });
+}
+function persistCloseDraft(extra) {
+  var d = ensureCloseDraft(), patch = {
+    opening: d.opening === '' ? undefined : num(d.opening),
+    openingAt: d.openingAt || undefined,
+    cardCounted: d.card === '' ? undefined : num(d.card),
+    cardAt: d.cardAt || undefined,
+    cardNote: txt(d.cardNote || '', 200) || undefined,
+    cards: (d.cards || []).map(function (t) {
+      return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', note: txt(t.note || '', 200) };
+    }),
+    transfers: (d.transfers || []).map(function (t) {
+      return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', url: t.url || '', publicId: t.publicId || '', at: t.at || '', note: txt(t.note || '', 200) };
+    }),
+    transferCounted: xferSum(d.transfers),
+    transferAt: d.transferAt || undefined,
+    transferNote: txt(d.transferNote || '', 200) || undefined
+  };
+  if (extra) Object.keys(extra).forEach(function (k) { patch[k] = extra[k]; });
+  Object.keys(patch).forEach(function (k) { if (patch[k] === undefined) delete patch[k]; });
+  saveDay(isoNow(), patch);
+}
+function closeStatsHtml(f, rec) {
+  var sales = Math.max(0, num(f.sales));
+  var open = rec && rec.opening != null ? num(rec.opening) : num(f.opening);
+  var card = rec && rec.cardCounted != null ? num(rec.cardCounted) : 0;
+  var trans = rec && rec.transferCounted != null ? num(rec.transferCounted) : xferSum(rec && rec.transfers);
+  var cash = rec && rec.counted != null ? num(rec.counted) : 0;
+  var pct = function (v) { return sales ? ((v / sales) * 100).toFixed(1) + '%' : '—'; };
+  var slips = (rec && rec.transfers && rec.transfers.length) || 0;
+  return '<div class="close-stats">' +
+    '<div class="close-stats-h">Day stats</div>' +
+    '<div class="close-stats-grid">' +
+      '<div><span>Opening</span><b class="num">' + n0(open) + '</b></div>' +
+      '<div><span>Cash in till</span><b class="num">' + n0(cash) + '</b><small>' + pct(cash) + ' of sales</small></div>' +
+      '<div><span>Card</span><b class="num">' + n0(card) + '</b><small>' + pct(card) + ' of sales' + (rec && rec.cardAt ? ' · ' + esc(rec.cardAt) : '') + '</small></div>' +
+      '<div><span>Transfer</span><b class="num">' + n0(trans) + '</b><small>' + pct(trans) + ' of sales' + (slips ? ' · ' + slips + ' slip' + (slips === 1 ? '' : 's') : '') + '</small></div>' +
+    '</div></div>';
+}
+function resizeImageFile(file, done) {
+  if (!file || !/^image\//.test(file.type || '')) { done(null, 'Pick a photo of the transfer'); return; }
+  var reader = new FileReader();
+  reader.onerror = function () { done(null, 'Could not read that photo'); };
+  reader.onload = function () {
+    var img = new Image();
+    img.onerror = function () { done(null, 'That file is not a usable image'); };
+    img.onload = function () {
+      var max = 1280, w = img.width, h = img.height;
+      if (w > max || h > max) { var s = Math.min(max / w, max / h); w = Math.round(w * s); h = Math.round(h * s); }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      try { done(canvas.toDataURL('image/jpeg', 0.82)); } catch (e) { done(null, 'Could not prepare the photo'); }
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+function uploadCloseImage(dataUrl, done) {
+  fetch('/api/v1/upload/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: dataUrl, folder: 'fatman/transfers' })
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (!x.ok || !x.j || !x.j.url) throw new Error((x.j && (x.j.message || x.j.error)) || 'Upload failed');
+      done(null, x.j.url, x.j.publicId || '');
+    })
+    .catch(function (e) { done(e.message || 'Upload failed'); });
+}
+function deleteCloseImage(publicIdOrUrl, done) {
+  if (!publicIdOrUrl) { done(null); return; }
+  fetch('/api/v1/upload/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ publicId: publicIdOrUrl, url: publicIdOrUrl })
+  }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+    .then(function (x) {
+      if (!x.ok) throw new Error((x.j && (x.j.message || x.j.error)) || 'Delete failed');
+      done(null);
+    })
+    .catch(function (e) { done(e.message || 'Delete failed'); });
+}
 function renderCloseCard(elId) {
   var el = $(elId); if (!el) return;
   var at = document.activeElement;
-  if (at && el.contains(at) && at.tagName === 'INPUT') return;   /* someone is typing in it: leave it alone */
+  if (at && el.contains(at) && (at.tagName === 'INPUT' || at.tagName === 'TEXTAREA') && !at.classList.contains('xfer-file')) return;
   var f = dayFigures(isoNow()), rec = f.rec, closed = rec && rec.counted != null;
+  var d = ensureCloseDraft();
+  if (rec && rec.opening != null && d.opening === '') d.opening = String(num(rec.opening));
+  if (rec && rec.openingAt && !d.openingAt) d.openingAt = rec.openingAt;
+  if (rec && rec.cardCounted != null && d.card === '') d.card = String(num(rec.cardCounted));
+  if (rec && rec.cardAt && !d.cardAt) d.cardAt = rec.cardAt;
+  if (rec && rec.cardNote && !d.cardNote) d.cardNote = rec.cardNote;
+  if (rec && rec.transferAt && !d.transferAt) d.transferAt = rec.transferAt;
+  if (rec && rec.transferNote && !d.transferNote) d.transferNote = rec.transferNote;
+  var cf = cardFeed(isoNow()), bf = bankFeed(isoNow());
   var h = '<h2 class="h flush">Close the day</h2>';
-  if (!f.prev && !(rec && rec.opening != null)) {
-    h += '<label>Cash in the drawer when today began (asked once, then carried forward every day)</label>' +
-      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="0" aria-label="Opening cash">' +
-      '<button type="button" class="btn secondary" data-act="set-opening">Set opening cash</button></div>';
-  }
-  var blind = isRole('till') && !closed;   /* count first; what the till expected shows after the day is closed */
-  if (blind) h += '<p class="hint">Count the drawer and type the total. The till shows what it expected once the day is closed.</p>';
-  else h += closeLine('Opening cash' + (f.prev && !(rec && rec.opening != null) ? ', counted ' + esc(dayText(f.prev)) : ''), f.opening) +
-    closeLine('Cash taken in today', f.cashIn, '+') + closeLine('Expenses paid from the till', f.exTill, '\u2212') +
+  var blind = isRole('till') && !closed;
+  if (blind) h += '<p class="hint">Count the drawer and fill card + each bank transfer. Totals show after the day is closed.</p>';
+  else h += closeLine('Cash taken in today', f.cashIn, '+') + closeLine('Expenses paid from the till', f.exTill, '\u2212') +
     (f.out ? closeLine('Cash taken out', f.out, '\u2212') : '') + (f.put ? closeLine('Cash put in', f.put, '+') : '') +
     closeLine('Should be in the drawer', f.expected, '', true);
-  if (CFG.CARD_AT_CLOSE) {
-    /* the card machine's settlement slip and the bank app are outside the till: typing their totals here shows a sale rung as
-       card or transfer that never reached them */
-    h += (cardFeed(isoNow())
-        ? '<p class="hint">Card machine: taken from the terminal\'s own record' + (isRole('till') && !closed ? '' : ', ' + n0(cardFeed(isoNow()).total) + ' in ' + num(cardFeed(isoNow()).n) + ' charges' + (cardFeed(isoNow()).last ? ', last at ' + esc(cardFeed(isoNow()).last) : '')) + '. Nothing to type.</p>'
-        : '<label>Card machine: the batch total on tonight\'s settlement slip (0 if none)</label>' +
-          '<div class="close-count"><input type="number" class="card-in" inputmode="numeric" min="0" placeholder="From the machine, not from the till" aria-label="Card machine batch total" value="' + (closed && rec.cardCounted != null ? num(rec.cardCounted) : '') + '"></div>') +
-      (bankFeed(isoNow())
-        ? '<p class="hint">Bank transfers: taken from the bank\'s own texts' + (isRole('till') && !closed ? '' : ', ' + n0(bankFeed(isoNow()).total) + ' in ' + num(bankFeed(isoNow()).n) + ' so far') + '. Nothing to type.</p>'
-        : '<label>Bank transfers received today, from the bank app (0 if none)</label>' +
-          '<div class="close-count"><input type="number" class="transfer-in" inputmode="numeric" min="0" placeholder="From the bank, not from the till" aria-label="Bank transfers received" value="' + (closed && rec.transferCounted != null ? num(rec.transferCounted) : '') + '"></div>');
+
+  /* Opening cash — date & time lock when set */
+  h += '<div class="close-block"><div class="close-block-h">Opening cash</div>';
+  if ((rec && rec.opening != null) || d.openingAt) {
+    h += closeLine('Amount', rec && rec.opening != null ? num(rec.opening) : num(d.opening)) +
+      lockStampHtml('Date & time (locked)', d.openingAt || (rec && rec.openingAt) || (f.prev ? 'from yesterday\'s count' : '—'));
+  } else if (f.prev && !(rec && rec.opening != null)) {
+    h += '<p class="hint">Carried from yesterday\'s count: ' + n0(f.opening) + '. Set today\'s opening if the drawer was topped up.</p>' +
+      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="' + n0(f.opening) + '" aria-label="Opening cash" value="' + esc(d.opening) + '">' +
+      '<button type="button" class="btn secondary" data-act="set-opening">Set opening</button></div>';
+  } else {
+    h += '<label>Cash in the drawer when today began</label>' +
+      '<div class="close-count"><input type="number" class="open-in" inputmode="numeric" min="0" placeholder="0" aria-label="Opening cash" value="' + esc(d.opening) + '">' +
+      '<button type="button" class="btn secondary" data-act="set-opening">Set opening</button></div>' +
+      '<p class="hint">Date and time lock automatically when you set it.</p>';
   }
-  h += '<label>Cash counted in the drawer</label><div class="close-count">' +
-    '<input type="number" class="count-in" inputmode="numeric" min="0" placeholder="Count it, then type the total" aria-label="Cash counted" value="' + (closed ? num(rec.counted) : '') + '">' +
-    '<button type="button" class="btn primary" data-act="close-day">' + (closed ? 'Close again' : 'Close the day') + '</button></div>';
+  h += '</div>';
+
+  if (CFG.CARD_AT_CLOSE) {
+    var cardRows = cf ? [] : syncCardDraft(f.iso);
+    var cardTotal = cf ? num(cf.total) : num(f.cardIn);
+    h += '<div class="close-block"><div class="close-block-h">Card machine</div>';
+    if (cf) {
+      h += '<p class="hint">Taken from the terminal\'s own record' + (blind ? '' : ', ' + n0(cf.total) + ' in ' + num(cf.n) + ' charges' + (cf.last ? ', last at ' + esc(cf.last) : '')) + '.</p>';
+    } else {
+      h += '<p class="hint">Every Card order is listed. Add a comment on any payment that had an issue, then Confirm All.</p>';
+      h += '<div class="xfer-list">';
+      if (!cardRows.length) h += '<p class="hint">No Card orders today.</p>';
+      cardRows.forEach(function (t, i) {
+        h += '<div class="xfer-row pay-row' + (t.note ? ' noted' : '') + '">' +
+          '<div class="xfer-thumb"><span>' + (i + 1) + '</span></div>' +
+          '<div class="xfer-fields">' +
+            '<div class="xfer-title"><span class="num">#' + pad(t.no) + '</span><b class="num">' + n0(t.amount) + '</b></div>' +
+            (t.customer && t.customer !== 'Walk-in' ? '<p class="hint">' + esc(t.customer) + '</p>' : '') +
+            (d.cardAt
+              ? (t.note ? '<div class="close-issue tight"><span>Issue note</span><p>' + esc(t.note) + '</p></div>' : '')
+              : '<input type="text" class="card-pay-note" data-cid="' + esc(String(t.id)) + '" maxlength="200" placeholder="Comment if issue with this payment" aria-label="Issue comment for #' + pad(t.no) + '" value="' + esc(t.note || '') + '">') +
+          '</div></div>';
+      });
+      h += '</div>';
+      h += closeLine(d.cardAt ? 'Confirmed total' : 'Till card total', num(d.card !== '' && d.cardAt ? d.card : cardTotal));
+      if (d.cardAt) {
+        h += lockStampHtml('Date & time (locked)', d.cardAt) +
+          (d.cardNote ? '<div class="close-issue"><span>Overall note</span><p>' + esc(d.cardNote) + '</p></div>' : '');
+      } else {
+        h += '<label for="cardNote">Overall comment (optional)</label>' +
+          '<textarea id="cardNote" class="close-note card-note" rows="2" maxlength="200" placeholder="Optional — e.g. machine declined twice, settled later">' + esc(d.cardNote || '') + '</textarea>' +
+          '<button type="button" class="btn secondary" data-act="confirm-card">Confirm All</button>';
+      }
+    }
+    h += '</div>';
+
+    var xfers = bf ? [] : syncTransferDraft(f.iso);
+    var xferNeed = xfers.filter(function (t) { return !t.url; }).length;
+    h += '<div class="close-block"><div class="close-block-h">Bank transfers</div>';
+    if (bf) {
+      h += '<p class="hint">Taken from the bank\'s own texts' + (blind ? '' : ', ' + n0(bf.total) + ' in ' + num(bf.n) + ' so far') + '.</p>';
+    } else {
+      h += '<p class="hint">Every Transfer order is listed. Upload that order\'s bank slip photo (e.g. order 590 → 590 receipt).</p>';
+      h += '<div class="xfer-list">';
+      if (!xfers.length) h += '<p class="hint">No Transfer orders today.</p>';
+      xfers.forEach(function (t, i) {
+        var busy = closeDraft.uploading === t.id;
+        h += '<div class="xfer-row' + (t.url ? ' ok' : '') + '">' +
+          '<div class="xfer-thumb">' + (t.url ? '<img src="' + esc(t.url) + '" alt="">' : '<span>' + (busy ? '…' : (i + 1)) + '</span>') + '</div>' +
+          '<div class="xfer-fields">' +
+            '<div class="xfer-title"><span class="num">#' + pad(t.no) + '</span><b class="num">' + n0(t.amount) + '</b></div>' +
+            (t.customer && t.customer !== 'Walk-in' ? '<p class="hint">' + esc(t.customer) + '</p>' : '') +
+            (t.at ? '<div class="close-lock tight"><span>Evidence logged</span><b>' + esc(t.at) + '</b></div>' : '') +
+            (d.transferAt
+              ? (t.note ? '<div class="close-issue tight"><span>Issue note</span><p>' + esc(t.note) + '</p></div>' : '')
+              : '<input type="text" class="xfer-note" data-xid="' + esc(String(t.id)) + '" maxlength="200" placeholder="Comment if issue with this payment" aria-label="Issue comment for #' + pad(t.no) + '" value="' + esc(t.note || '') + '">') +
+            '<div class="xfer-actions">' +
+              (d.transferAt ? '' :
+                '<label class="btn sm secondary xfer-pick">' + (t.url ? 'Change photo' : 'Upload evidence') +
+                  '<input type="file" class="xfer-file" accept="image/*" capture="environment" data-xid="' + esc(String(t.id)) + '"' + (busy ? ' disabled' : '') + '>' +
+                '</label>') +
+              (t.url && !d.transferAt ? '<button type="button" class="btn sm danger" data-act="xfer-photo-del" data-xid="' + esc(String(t.id)) + '">Remove photo</button>' : '') +
+            '</div>' +
+          '</div></div>';
+      });
+      h += '</div>';
+      h += closeLine('Transfer total', xferSum(xfers));
+      if (d.transferAt) {
+        h += lockStampHtml('Date & time (locked)', d.transferAt) +
+          (d.transferNote ? '<div class="close-issue"><span>Issue note</span><p>' + esc(d.transferNote) + '</p></div>' : '');
+      } else {
+        h += '<label>Comment if any transfer issue (before confirm)</label>' +
+          '<textarea class="close-note xfer-block-note" rows="2" maxlength="200" placeholder="Optional — overall bank transfer issues">' + esc(d.transferNote || '') + '</textarea>' +
+          '<p class="hint">' + (xferNeed ? xferNeed + ' still need a photo. ' : (xfers.length ? 'All slips have photos. ' : '')) + 'Confirm All locks date &amp; time.</p>' +
+          '<button type="button" class="btn secondary" data-act="confirm-xfer"' + (xferNeed ? ' disabled' : '') + '>Confirm All</button>';
+      }
+    }
+    h += '</div>';
+  }
+
+  h += '<div class="close-block"><div class="close-block-h">Till cash at day end</div>' +
+    '<label>How much cash is in the till now</label><div class="close-count">' +
+    '<input type="number" class="count-in" inputmode="numeric" min="0" placeholder="Count it, then type the total" aria-label="Cash in till" value="' + esc(d.counted) + '">' +
+    '<button type="button" class="btn primary" data-act="close-day">' + (closed ? 'Close again' : 'Close the day') + '</button></div></div>';
+
+  if (closed || (rec && rec.opening != null && rec.counted != null)) h += closeStatsHtml(f, rec || {
+    opening: num(d.opening), cardCounted: num(d.card), transferCounted: xferSum(d.transfers), transfers: d.transfers, counted: num(d.counted), cardAt: d.cardAt
+  });
+
   if (closed && CFG.CARD_AT_CLOSE && rec.cardCounted != null) {
-    [['Card', rec.cardCounted, rec.cardExpected, 'the machine settled'], ['Transfer', rec.transferCounted, rec.transferExpected, /^bank/.test(rec.transferFrom || '') ? 'the bank\'s texts (' + esc(rec.transferFrom.replace('bank texts, ', 'up ')) + ') show' : 'the bank shows']].forEach(function (x) {
+    [['Card', rec.cardCounted, rec.cardExpected, 'the machine settled'], ['Transfer', rec.transferCounted, rec.transferExpected, 'the bank slips show']].forEach(function (x) {
       var gap = num(x[2]) - num(x[1]);
       h += '<div class="overshort ' + (gap === 0 ? 'ok' : 'off') + '">' + x[0] + ': the till rang ' + n0(x[2]) + ', ' + x[3] + ' ' + n0(x[1]) + '. ' +
         (gap === 0 ? 'They match.' : gap > 0 ? money(gap) + ' was rung as ' + x[0].toLowerCase() + ' but did not arrive.' : money(-gap) + ' arrived that the till did not ring.') + '</div>';
@@ -3861,27 +4148,118 @@ function onClick(ev) {
       if (gone) { gone.deleted = true; stamp(gone); commit('accounts', gone.id); refreshAll(); toast(gone.name + ' removed'); }
       break;
     case 'set-opening':
-      var oin = el.closest('.close-card').querySelector('.open-in'), ov = parseFloat(oin.value);
+      var oCard = el.closest('.close-card'); syncDraftFromDom(oCard);
+      var oin = oCard.querySelector('.open-in'), ov = parseFloat(oin && oin.value);
       if (isNaN(ov) || ov < 0) { toast('Type the cash the day began with'); break; }
-      oin.blur(); saveDay(isoNow(), { opening: ov }); refreshAll(); toast('Opening cash set');
+      if (oin) oin.blur();
+      ensureCloseDraft().opening = String(ov);
+      ensureCloseDraft().openingAt = dayStampNow();
+      persistCloseDraft({ opening: ov, openingAt: ensureCloseDraft().openingAt });
+      closeDraft = null; refreshAll(); toast('Opening cash locked with date & time');
+      break;
+    case 'confirm-card':
+      syncDraftFromDom(el.closest('.close-card'));
+      syncCardDraft(isoNow());
+      syncDraftFromDom(el.closest('.close-card'));
+      var cardTot = num(dayFigures(isoNow()).cardIn);
+      ensureCloseDraft().card = String(cardTot);
+      ensureCloseDraft().cardAt = dayStampNow();
+      persistCloseDraft({
+        cardCounted: cardTot,
+        cardAt: ensureCloseDraft().cardAt,
+        cardNote: txt(ensureCloseDraft().cardNote || '', 200),
+        cards: ensureCloseDraft().cards
+      });
+      closeDraft = null; refreshAll(); toast('Card total confirmed and locked');
+      break;
+    case 'confirm-xfer':
+      syncDraftFromDom(el.closest('.close-card'));
+      syncTransferDraft(isoNow());
+      syncDraftFromDom(el.closest('.close-card'));
+      var miss = ensureCloseDraft().transfers.filter(function (t) { return !t.url; });
+      if (miss.length) { toast('Upload evidence for every Transfer order first'); break; }
+      ensureCloseDraft().transferAt = dayStampNow();
+      persistCloseDraft({
+        transferAt: ensureCloseDraft().transferAt,
+        transferCounted: xferSum(ensureCloseDraft().transfers),
+        transferNote: txt(ensureCloseDraft().transferNote || '', 200)
+      });
+      closeDraft = null; refreshAll(); toast('Bank transfers confirmed and locked');
+      break;
+    case 'xfer-photo-del':
+      syncDraftFromDom(el.closest('.close-card'));
+      var xidDel = el.getAttribute('data-xid'), rowDel = null;
+      ensureCloseDraft().transfers.forEach(function (t) { if (String(t.id) === String(xidDel)) rowDel = t; });
+      if (!rowDel || !rowDel.url) break;
+      if (ensureCloseDraft().transferAt) { toast('Transfers already confirmed'); break; }
+      deleteCloseImage(rowDel.publicId || rowDel.url, function (delErr) {
+        if (delErr) toast(delErr);
+        rowDel.url = ''; rowDel.publicId = ''; rowDel.at = '';
+        persistCloseDraft(); closeDraft = null; refreshAll();
+        toast(delErr ? 'Photo cleared (Cloudinary: ' + delErr + ')' : 'Photo removed from app and Cloudinary');
+      });
       break;
     case 'close-day':
-      var cin = el.closest('.close-card').querySelector('.count-in'), cv = parseFloat(cin.value), fg = dayFigures(isoNow());
-      if (isNaN(cv) || cv < 0) { toast('Count the drawer and type the total first'); break; }
-      cin.blur();
-      var cardV = null, transV = null;
-      if (CFG.CARD_AT_CLOSE) {
-        var cardEl = el.closest('.close-card').querySelector('.card-in'), transEl = el.closest('.close-card').querySelector('.transfer-in');
-        var bf = bankFeed(isoNow()), cf = cardFeed(isoNow());
-        cardV = cf ? num(cf.total) : parseFloat(cardEl ? cardEl.value : ''); transV = bf ? num(bf.total) : parseFloat(transEl ? transEl.value : '');
-        if (isNaN(cardV) || cardV < 0) { toast('Type the card machine\'s batch total, or 0'); if (cardEl) cardEl.focus(); break; }
-        if (isNaN(transV) || transV < 0) { toast('Type the bank transfers received, or 0'); if (transEl) transEl.focus(); break; }
+      var closeEl = el.closest('.close-card'); syncDraftFromDom(closeEl);
+      var cin = closeEl.querySelector('.count-in'), cv = parseFloat(cin && cin.value), fg = dayFigures(isoNow());
+      if (isNaN(cv) || cv < 0) { toast('Count the till cash and type the total first'); break; }
+      if (cin) cin.blur();
+      var cardV = null, transV = null, xfers = [];
+      var dOpen = ensureCloseDraft();
+      if (!(dayRec(isoNow()) && dayRec(isoNow()).opening != null) && !(dOpen.openingAt && dOpen.opening !== '') && !fg.prev) {
+        toast('Set opening cash first'); break;
       }
-      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();   /* a box left focused would stop the card redrawing with the result */
+      if (CFG.CARD_AT_CLOSE) {
+        var bf = bankFeed(isoNow()), cf = cardFeed(isoNow());
+        if (cf) cardV = num(cf.total);
+        else {
+          if (!dOpen.cardAt) { toast('Confirm All on Card machine first'); break; }
+          cardV = num(dOpen.card);
+        }
+        if (bf) { transV = num(bf.total); xfers = []; }
+        else {
+          syncTransferDraft(isoNow());
+          xfers = (ensureCloseDraft().transfers || []).map(function (t) {
+            return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', url: t.url || '', publicId: t.publicId || '', at: t.at || '' };
+          });
+          var bad = xfers.filter(function (t) { return !t.url; });
+          if (bad.length) { toast('Upload evidence for every Transfer order'); break; }
+          if (!dOpen.transferAt && xfers.length) { toast('Confirm All on Bank transfers first'); break; }
+          if (!dOpen.transferAt && !xfers.length) {
+            dOpen.transferAt = dayStampNow();
+          }
+          transV = xferSum(xfers);
+        }
+      }
+      if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
       var recNow = dayRec(isoNow()), shut = function (k) {
-        var patch = { opening: fg.opening, expected: fg.expected, counted: cv, by: whoName(), closedAt: timeNow() }; if (k) patch.ok = k;
-        if (cardV != null) { patch.cardCounted = cardV; patch.transferCounted = transV; patch.cardExpected = fg.cardIn; patch.transferExpected = fg.transferIn; patch.transferFrom = bankFeed(isoNow()) ? 'bank texts, to ' + txt(bankFeed(isoNow()).last, 5) : 'typed'; patch.cardFrom = cardFeed(isoNow()) ? 'terminal record, to ' + txt(cardFeed(isoNow()).last, 5) : 'typed'; }
-        saveDay(isoNow(), patch); refreshAll();
+        var openAmt = recNow && recNow.opening != null ? num(recNow.opening) : num(dOpen.opening);
+        var patch = {
+          opening: openAmt,
+          openingAt: (recNow && recNow.openingAt) || dOpen.openingAt || dayStampNow(),
+          expected: fg.expected,
+          counted: cv,
+          by: whoName(),
+          closedAt: timeNow()
+        };
+        if (k) patch.ok = k;
+        if (cardV != null) {
+          patch.cardCounted = cardV;
+          patch.cardAt = cf ? (cf.last || dayStampNow()) : (dOpen.cardAt || dayStampNow());
+          patch.cardNote = txt(dOpen.cardNote || (recNow && recNow.cardNote) || '', 200);
+          patch.cards = (dOpen.cards || []).map(function (t) {
+            return { id: t.id, no: t.no, amount: num(t.amount), customer: t.customer || '', note: txt(t.note || '', 200) };
+          });
+          patch.transferCounted = transV;
+          patch.transfers = xfers;
+          patch.transferAt = bf ? (bf.last || dayStampNow()) : (dOpen.transferAt || dayStampNow());
+          patch.transferNote = txt(dOpen.transferNote || (recNow && recNow.transferNote) || '', 200);
+          patch.cardExpected = fg.cardIn;
+          patch.transferExpected = fg.transferIn;
+          patch.transferFrom = bf ? 'bank texts, to ' + txt(bf.last, 5) : 'order evidence';
+          patch.cardFrom = cf ? 'terminal record, to ' + txt(cf.last, 5) : 'till confirm';
+        }
+        saveDay(isoNow(), patch); closeDraft = null; refreshAll();
         toast(cv === fg.expected ? 'Day closed. The drawer matches.' : 'Day closed. The drawer is ' + (cv > fg.expected ? 'over' : 'short') + ' by ' + money(Math.abs(cv - fg.expected)));
       };
       if (recNow && recNow.counted != null && (num(recNow.counted) !== cv || (cardV != null && (num(recNow.cardCounted) !== cardV || num(recNow.transferCounted) !== transV))) && needsOk('reclose')) {
@@ -4037,6 +4415,37 @@ function init() {
     }).join('');
   });
   document.addEventListener('click', onClick);
+  document.addEventListener('change', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList.contains('xfer-file')) return;
+    var xid = t.getAttribute('data-xid'), file = t.files && t.files[0];
+    t.value = '';
+    if (!file) return;
+    if (ensureCloseDraft().transferAt) { toast('Transfers already confirmed'); return; }
+    syncTransferDraft(isoNow());
+    var draft = ensureCloseDraft(), prev = null;
+    draft.transfers.forEach(function (row) { if (String(row.id) === String(xid)) prev = row; });
+    draft.uploading = xid;
+    renderCloseCard('closeB'); renderCloseCard('closeO');
+    resizeImageFile(file, function (dataUrl, err) {
+      if (err || !dataUrl) { draft.uploading = null; toast(err || 'Photo failed'); refreshAll(); return; }
+      uploadCloseImage(dataUrl, function (upErr, url, publicId) {
+        if (upErr || !url) { draft.uploading = null; toast(upErr || 'Upload failed'); refreshAll(); return; }
+        var finish = function () {
+          draft.uploading = null;
+          draft.transfers.forEach(function (row) {
+            if (String(row.id) === String(xid)) {
+              row.url = url; row.publicId = publicId || ''; row.at = timeNow();
+            }
+          });
+          persistCloseDraft(); closeDraft = null; refreshAll(); toast('Evidence saved for #' + (prev && prev.no ? pad(prev.no) : ''));
+        };
+        if (prev && (prev.publicId || prev.url)) {
+          deleteCloseImage(prev.publicId || prev.url, function () { finish(); });
+        } else finish();
+      });
+    });
+  });
   document.addEventListener('keydown', function (ev) {
     lastActive = Date.now();
     if (ev.key === 'Escape' && !$('modal').classList.contains('hidden')) { closeModal(); return; }
