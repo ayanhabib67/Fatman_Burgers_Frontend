@@ -1574,7 +1574,7 @@ function billPlease(id) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid') return;
   o.bill = nowMs(); stamp(o); commit('orders', o.id); refreshAll(); toast('The till has been asked for the bill of #' + pad(o.no));
 }
-var WAITER_NO = ['ask-void', 'confirm-void', 'ask-paid', 'paid-by', 'pay-method', 'discount', 'apply-disc', 'charge', 'reprint', 'reprint-by', 'reslip', 'rekitchen', 'custom', 'move-add', 'move-del',
+var WAITER_NO = ['ask-void', 'confirm-void', 'ask-paid', 'paid-by', 'pay-method', 'paid-deal', 'paid-disc', 'paid-disc-apply', 'discount', 'apply-disc', 'charge', 'reprint', 'reprint-by', 'reslip', 'rekitchen', 'custom', 'move-add', 'move-del',
   'close-day', 'set-opening', 'loyal-add', 'count-ask', 'waste-ask', 'outs-ask', 'pay-now', 'vdel-ask'];
 function blockedForMe(act) {
   if (!rolesOn || role !== 'barista') return false;
@@ -2829,7 +2829,7 @@ function askPayMethod(id, mode) {
   var kick = mode === 'pay' ? 'Mark as paid' : 'Customer bill';
   var head = mode === 'pay' ? 'How was this paid?' : 'Print customer bill as';
   var hint = mode === 'pay'
-    ? 'Tap a method to take payment and print the receipt'
+    ? 'Tap a method, then choose any discount before the receipt prints'
     : (unpaid
       ? 'Tap a method to print the customer bill. Order stays unpaid.'
       : 'Tap a method to reprint the customer bill');
@@ -2859,8 +2859,16 @@ function askReprint(id) {
 }
 function payMethodBy(id, method, mode) {
   var o = findOrder(id); if (!o || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
-  /* Paid button only */
-  if (mode === 'pay') { markPaid(id, method); return; }
+  /* Paid: method first, then discount modal, then print */
+  if (mode === 'pay') {
+    if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
+    if (!paidAsk || paidAsk.id !== id) paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
+    paidAsk.method = method;
+    if (o.deal) { paidAsk.deal = copy(o.deal); paidAsk.pct = num(o.deal.pct); }
+    else paidAsk.deal = null;
+    openPaidDiscount();
+    return;
+  }
   /* Reprint: customer bill for paid or unpaid — never mark unpaid as paid */
   if (mode === 'bill' || mode === 'reprint' || o.payment === 'Unpaid') {
     closeModal();
@@ -3210,12 +3218,68 @@ function paidAskAmount() {
   return { pct: pct, disc: Math.round(sale * pct / 100), sale: sale };
 }
 function renderPaidAsk() { if (paidAsk) askPayMethod(paidAsk.id, 'pay'); }
+function openPaidDiscount() {
+  if (!paidAsk) return;
+  var o = findOrder(paidAsk.id); if (!o) return;
+  var std = [0, 5, 10, 15, 20, 50];
+  var pct = Math.min(100, Math.max(0, num(paidAsk.pct)));
+  var deal = paidAsk.deal || null;
+  var deals = '';
+  if (BANK_DEALS.length) {
+    deals = '<div class="deal-sheet">' + BANK_DEALS.map(function (d, di) {
+      return '<section class="deal-band">' +
+        '<div class="deal-band-h"><span class="deal-pct num">' + d.pct + '%</span><span class="deal-band-t"><b>' + esc(d.bank) + '</b> off when paid with</span></div>' +
+        '<div class="chips cards" role="group" aria-label="' + esc(d.bank) + ' ' + d.pct + '% cards">' + d.cards.map(function (c, ci) {
+          var on = deal && deal.bank === d.bank && deal.card === c;
+          return '<button type="button" data-act="paid-deal" data-v="' + di + ':' + ci + '"' + (on ? ' class="on"' : '') + ' title="' + esc(c) + '">' + cardSvg(c) + '<span>' + esc(cardLabel(c)) + '</span></button>';
+        }).join('') + '</div></section>';
+    }).join('') +
+      '<p class="deal-note">Pick the card they pay with. This order can only close as Card.</p></div>' +
+      '<p class="deal-tier disc-other"><b>Other discount</b></p>';
+  }
+  openModal('<h2 id="modalTitle">Discount on this order</h2>' + deals +
+    '<div class="disc-foot">' +
+    '<div class="chips disc-pct" role="group" aria-label="Other percentage">' + std.map(function (d) {
+      return '<button type="button" data-act="paid-disc" data-v="' + d + '"' + (!deal && pct === d ? ' class="on"' : '') + '>' + (d ? d + '%' : 'None') + '</button>';
+    }).join('') + '</div>' +
+    '<label for="discountPct">Or type another %</label>' +
+    '<div class="split disc-apply"><input type="number" id="discountPct" inputmode="numeric" min="0" max="100" placeholder="0–100"' + (!deal && std.indexOf(pct) < 0 ? ' value="' + pct + '"' : '') + '>' +
+    '<button type="button" class="btn primary" data-act="paid-disc-apply">Apply</button></div>' +
+    '<button type="button" class="btn quiet" data-act="close-modal">Cancel</button></div>', 'disc-modal');
+}
+function paidDealPick(key) {
+  if (!paidAsk) return;
+  var k = String(key).split(':'), d = BANK_DEALS[+k[0]], c = d && d.cards[+k[1]];
+  if (!d || c == null) return;
+  paidAsk.deal = { bank: d.bank, card: c, pct: d.pct };
+  paidAsk.pct = d.pct;
+  paidAsk.method = 'Card';
+  finishPaidFromDisc();
+}
+function paidDiscPick(pct) {
+  if (!paidAsk) return;
+  paidAsk.deal = null;
+  paidAsk.pct = Math.min(100, Math.max(0, num(pct)));
+  finishPaidFromDisc();
+}
+function paidDiscApplyCustom() {
+  if (!paidAsk || !$('discountPct')) return;
+  paidAsk.deal = null;
+  paidAsk.pct = Math.min(100, Math.max(0, num($('discountPct').value)));
+  finishPaidFromDisc();
+}
+function finishPaidFromDisc() {
+  if (!paidAsk || !paidAsk.method) return;
+  markPaid(paidAsk.id, paidAsk.method);
+}
 function markPaid(id, method) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
+  if (paidAsk && paidAsk.id === id && paidAsk.deal) method = 'Card';
   if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
   var a = (paidAsk && paidAsk.id === id) ? paidAskAmount() : { pct: num(o.discountPct), disc: num(o.discount) };
   o.discountPct = a.pct; o.discount = a.disc;
-  if (o.deal && a.pct !== num(o.deal.pct)) delete o.deal;
+  if (paidAsk && paidAsk.id === id && paidAsk.deal) o.deal = copy(paidAsk.deal);
+  else if (o.deal && a.pct !== num(o.deal.pct)) delete o.deal;
   o.payment = method; applyOrderTax(o); o.paidAt = timeNow(); o.paidDate = localeDay(); o.paidIso = isoNow(); stamp(o);
   paidAsk = null;
   commit('orders', o.id); closeModal(); refreshAll(); printReceipt(o);
@@ -4364,8 +4428,9 @@ function onClick(ev) {
     case 'reslip': reslip(id); break;
     case 'ask-paid': askPayMethod(id, 'pay'); break;
     case 'paid-by': markPaid(id, el.getAttribute('data-v')); break;
-    case 'paid-disc': if (paidAsk) { paidAsk.pct = num(el.getAttribute('data-v')); renderPaidAsk(); } break;
-    case 'paid-disc-apply': if (paidAsk && $('paidDiscPct')) { paidAsk.pct = Math.min(100, Math.max(0, num($('paidDiscPct').value))); renderPaidAsk(); } break;
+    case 'paid-deal': paidDealPick(el.getAttribute('data-v')); break;
+    case 'paid-disc': paidDiscPick(el.getAttribute('data-v')); break;
+    case 'paid-disc-apply': paidDiscApplyCustom(); break;
     case 'ask-void': askVoid(id); break;
     case 'void-reason':
       [].forEach.call($('voidReasons').querySelectorAll('button'), function (b) { b.classList.toggle('on', b === el); });
