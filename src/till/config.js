@@ -18,6 +18,8 @@ window.WHIPPED_CONFIG = {
   /* ---- Which shop this till belongs to ----
      The database keeps each outlet's orders, PINs and devices apart. */
   OUTLET: 'fatman',
+  /* One-shot: next till load clears local orders (DB already wiped). Change token to wipe again. */
+  WIPE_ORDERS_TOKEN: '2026-11-14-clear-4',
 
   /* Cash and Transfer at 15%; Card at 8%. */
   TAX: { enabled: true, rates: { Cash: 15, Card: 8, Transfer: 15 }, inclusive: false, showLine: true },

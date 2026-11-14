@@ -94,30 +94,36 @@
 
     <aside id="orderPanel" class="order" aria-label="Current order">
       <div class="order-head">
-        <h2>Order <span id="orderNoLbl" class="num"></span></h2>
+        <h2>Order <span id="orderNoLbl" class="num"></span><span id="orderTableLbl" class="table-pill hidden"></span></h2>
         <div>
           <button type="button" class="link" data-act="clear-cart" id="clearCart">Clear</button>
           <button type="button" class="btn quiet sheet-only" data-act="close-sheet">Back to menu</button>
         </div>
       </div>
 
-      <div id="cartList" class="cart"></div>
-
-      <div class="order-opts">
-        <div class="seg small" id="chanSeg" role="group" aria-label="Where the order came from">
-          <button type="button" data-v="Counter" class="on">Counter</button>
-          <button type="button" data-v="Foodpanda">Foodpanda</button>
+      <div class="order-body">
+        <div id="cartList" class="cart"></div>
+        <div class="order-opts">
+          <div class="seg small" id="chanSeg" role="group" aria-label="Where the order came from">
+            <button type="button" data-v="Counter" class="on">Counter</button>
+            <button type="button" data-v="Foodpanda">Foodpanda</button>
+          </div>
+          <div class="seg small hidden" id="svcSeg" role="group" aria-label="Dine in or takeaway"></div>
+          <div class="opts-row opts-contact">
+            <label class="table-field hidden" id="tableField" for="tableNo">
+              <span class="table-field-l">Table</span>
+              <input type="tel" id="tableNo" inputmode="numeric" placeholder="No." aria-label="Table number" autocomplete="off" maxlength="3">
+            </label>
+            <input type="tel" id="custPhone" inputmode="numeric" placeholder="Phone, optional" aria-label="Customer phone, optional" autocomplete="off" maxlength="15">
+          </div>
+          <div class="opts-row opts-who">
+            <input type="text" id="custName" placeholder="Customer's name" aria-label="Customer's name" autocomplete="off" maxlength="40">
+            <button type="button" class="btn quiet" id="waiterBtn" data-act="waiter">Waiter</button>
+            <button type="button" class="btn quiet" id="discBtn" data-act="discount">Discount</button>
+          </div>
+          <p class="hint hidden" id="custHint"></p>
+          <input type="text" id="orderNote" placeholder="Instructions for the kitchen, optional" aria-label="Instructions for the kitchen, optional" autocomplete="off" maxlength="160">
         </div>
-        <div class="seg hidden" id="svcSeg" role="group" aria-label="Dine in or takeaway"></div>
-        <div class="opts-row">
-          <input type="tel" id="tableNo" inputmode="numeric" class="hidden" placeholder="Table" aria-label="Table number" autocomplete="off" maxlength="3">
-          <input type="tel" id="custPhone" inputmode="numeric" placeholder="Phone, optional" aria-label="Customer phone, optional" autocomplete="off" maxlength="15">
-          <input type="text" id="custName" placeholder="Customer's name" aria-label="Customer's name" autocomplete="off" maxlength="40">
-          <button type="button" class="btn quiet" id="waiterBtn" data-act="waiter">Waiter</button>
-          <button type="button" class="btn quiet" id="discBtn" data-act="discount">Discount</button>
-        </div>
-        <p class="hint hidden" id="custHint"></p>
-        <input type="text" id="orderNote" placeholder="Instructions for the kitchen, optional" aria-label="Instructions for the kitchen, optional" autocomplete="off" maxlength="160">
       </div>
 
       <div class="order-foot">
@@ -163,11 +169,13 @@
         </div>
       </div>
       <p id="chgNote" class="hint chg-hint"></p>
-      <div id="chgList" class="cart"></div>
-      <div class="order-opts">
-        <div id="chgPayWrap" class="hidden">
-          <p class="deal-tier" id="chgPayLbl"><b>Collect the extra by</b></p>
-          <div id="chgPay" class="chips tight" role="group" aria-label="Payment for the difference"></div>
+      <div class="order-body">
+        <div id="chgList" class="cart"></div>
+        <div class="order-opts">
+          <div id="chgPayWrap" class="hidden">
+            <p class="deal-tier" id="chgPayLbl"><b>Collect the extra by</b></p>
+            <div id="chgPay" class="chips tight" role="group" aria-label="Payment for the difference"></div>
+          </div>
         </div>
       </div>
       <div class="order-foot">
@@ -187,10 +195,24 @@
   <!-- ORDERS -->
   <section id="tabOrders" class="page hidden">
     <div class="page-in">
-      <h2 class="h">Waiting to be paid <span id="bUnpaidCount" class="count">0</span></h2>
-      <div id="bUnpaid" class="rows"></div>
-      <h2 class="h">Today's orders <span id="bCount" class="count">0</span></h2>
-      <div id="bOrders" class="rows"></div>
+      <div class="seg orders-chan" id="ordersChanSeg" role="tablist" aria-label="Order channel">
+        <button type="button" data-v="Counter" class="on" role="tab" aria-selected="true">Counter Orders <b id="ordChanCounter" class="tab-badge soft hidden">0</b></button>
+        <button type="button" data-v="Foodpanda" role="tab" aria-selected="false">Foodpanda <b id="ordChanPanda" class="tab-badge soft hidden">0</b></button>
+      </div>
+      <div class="orders-block">
+        <div class="orders-block-head">
+          <h2 class="h">Waiting to be paid</h2>
+          <span id="bUnpaidCount" class="count hidden">0</span>
+        </div>
+        <div id="bUnpaid" class="rows orders-lane"></div>
+      </div>
+      <div class="orders-block">
+        <div class="orders-block-head">
+          <h2 class="h">Today's orders</h2>
+        </div>
+        <div id="bOrdersCats" class="orders-cats"></div>
+        <div id="bOrders" class="rows orders-lane hidden"></div>
+      </div>
       <div class="card pad waiter-only">
         <h2 class="h flush">My shift</h2>
         <p class="hint">At the end of the shift, check your orders and sign.</p>

@@ -114,7 +114,7 @@ export default function HrLoginPage() {
             </form>
 
             <a
-              href="/till/index.html"
+              href="/till/"
               className="block text-center text-sm font-medium text-[var(--color-muted)] hover:text-[var(--color-teal)]"
             >
               Open POS till instead

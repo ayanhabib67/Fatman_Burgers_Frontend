@@ -41,7 +41,7 @@ export const moduleNavGroups = [
       {
         key: 'pos-till',
         label: 'POS Till',
-        path: '/till/index.html',
+        path: '/till/',
         external: true,
         roles: ['admin', 'employee', 'pos'],
       },
@@ -61,7 +61,7 @@ export function navGroupsForRole(role) {
     .filter((g) => (!g.roles || g.roles.includes(r)) && g.items.length > 0);
 }
 
-export const TILL_URL = '/till/index.html';
+export const TILL_URL = '/till/';
 
 export function isPosOnly(role) {
   return role === 'pos';

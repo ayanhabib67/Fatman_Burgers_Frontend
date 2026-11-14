@@ -11,11 +11,37 @@ export default defineConfig({
     react(),
     tailwindcss(),
     {
-      name: 'fatman-till-index',
+      name: 'fatman-till-clean-url',
       configureServer(server) {
-        server.middlewares.use((req, _res, next) => {
-          if (req.url === '/till' || req.url === '/till/') {
-            req.url = '/till/index.html';
+        server.middlewares.use((req, res, next) => {
+          const raw = req.url || '';
+          const pathOnly = raw.split('?')[0];
+          const qs = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
+          if (pathOnly === '/till/index.html') {
+            res.statusCode = 302;
+            res.setHeader('Location', '/till/' + qs);
+            res.end();
+            return;
+          }
+          if (pathOnly === '/till' || pathOnly === '/till/') {
+            req.url = '/till/index.html' + qs;
+          }
+          next();
+        });
+      },
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          const raw = req.url || '';
+          const pathOnly = raw.split('?')[0];
+          const qs = raw.includes('?') ? raw.slice(raw.indexOf('?')) : '';
+          if (pathOnly === '/till/index.html') {
+            res.statusCode = 302;
+            res.setHeader('Location', '/till/' + qs);
+            res.end();
+            return;
+          }
+          if (pathOnly === '/till' || pathOnly === '/till/') {
+            req.url = '/till/index.html' + qs;
           }
           next();
         });
