@@ -6,11 +6,26 @@
 var CFG = window.WHIPPED_CONFIG || {};
 /* Missing TAX keeps the shared Whipped till's old amounts and screens. */
 var TAX = window.TAX || { enabled: false };
+function orderPayMethod(o) {
+  if (!o) return 'Cash';
+  if (o.payment && o.payment !== 'Unpaid') return o.payment;
+  if (o.deal) return 'Card';
+  if (o.payBy && ['Cash', 'Card', 'Transfer'].indexOf(o.payBy) >= 0) return o.payBy;
+  return 'Cash';
+}
 function applyOrderTax(o) {
   if (!TAX.enabled) return;
-  if (o.payment === 'Unpaid') { delete o.tax; return; }
-  var t = TAX.compute(o.items, o.discount, o.payment);
-  o.tax = { rate: t.rate, sale: t.sale, tax: t.tax }; o.total = t.total;
+  /* Unpaid still carries tax at the planned method (Cash/Card/Transfer on the sell screen),
+     so Orders shows the same due amount as Charge / Pay at the end. */
+  var method = orderPayMethod(o);
+  var t = TAX.compute(o.items, o.discount, method);
+  if (!t.rate) {
+    delete o.tax;
+    o.total = Math.max(0, num(o.sub) - num(o.discount));
+    return;
+  }
+  o.tax = { rate: t.rate, sale: t.sale, tax: t.tax };
+  o.total = t.total;
 }
 /* MENU starts from config as offline fallback; loadMenuFromServer() replaces it from Mongo. */
 var MENU = (CFG.MENU || []).map(function (m) { return { c: m.c, n: m.n, p: m.p, k: m.k, i: m.i || '' }; });
@@ -1630,7 +1645,9 @@ function confirmOrder(payment, acctWho, preId, okId) {
   var tableV = $('tableNo') && CFG.TABLE_NO && ui.svc === 'Dine in' ? num($('tableNo').value) : 0;
   if (CFG.TABLE_NO && ui.svc === 'Dine in' && ui.channel !== 'Foodpanda' && !tableV) { toast('Which table?'); if ($('tableNo')) $('tableNo').focus(); return; }
   if (ui.deal && payment !== 'Card' && payment !== 'Unpaid') { toast(ui.deal.bank + ' card deal: this order must be paid by card'); return; }
-  var t = cartTotals(payment), cogs = 0, chan = ui.channel;
+  /* Pay at the end: price with the Cash/Card/Transfer chip they already picked, not zero tax. */
+  var priceAs = payment === 'Unpaid' ? (ui.payment || 'Cash') : payment;
+  var t = cartTotals(priceAs), cogs = 0, chan = ui.channel;
   if (needsOk('discount') && !ui.deal && t.pct > num(policy.disc_cap) && !okId) {
     var nid = newId();
     approve('discount', nid, t.disc, t.pct + '% off, ' + money(t.disc) + ' on ' + money(t.sub), function (k) { confirmOrder(payment, acctWho, nid, k); });
@@ -1643,6 +1660,7 @@ function confirmOrder(payment, acctWho, preId, okId) {
     items: copy(cart), sub: t.sub, discount: t.disc, discountPct: t.pct, total: t.total, cogs: cogs,
     channel: chan, payment: payment, customer: (acctWho && acctWho.name) || $('custName').value.trim() || 'Walk-in', u: nowMs()
   };
+  if (payment === 'Unpaid') o.payBy = priceAs;
   applyOrderTax(o);
   if (acctWho && acctWho.acct) o.acct = acctWho.acct;
   if (ui.deal) o.deal = copy(ui.deal);
@@ -2809,7 +2827,11 @@ function customerBillHtml(o, method) {
 function receiptHtml(o) {
   return customerBillHtml(o, o.payment);
 }
-function findOrder(id) { for (var i = 0; i < orders.length; i++) if (orders[i].id === id) return orders[i]; return null; }
+function findOrder(id) {
+  id = Number(id);
+  for (var i = 0; i < orders.length; i++) if (Number(orders[i].id) === id) return orders[i];
+  return null;
+}
 function reprint(id) { var o = findOrder(id); if (o) printReceipt(o); }
 function payMethodDue(o) {
   if (!o) return 0;
@@ -2817,7 +2839,7 @@ function payMethodDue(o) {
   var sale = 0; o.items.forEach(function (it) { sale += it.p * it.q; });
   var disc = num(o.discount);
   if (num(o.discountPct)) disc = Math.round(sale * Math.min(100, Math.max(0, num(o.discountPct))) / 100);
-  return TAX.enabled ? TAX.compute(o.items, disc, o.deal ? 'Card' : 'Cash').total : Math.max(0, sale - disc);
+  return TAX.enabled ? TAX.compute(o.items, disc, orderPayMethod(o)).total : Math.max(0, sale - disc);
 }
 function askPayMethod(id, mode) {
   var o = findOrder(id); if (!o) return;
@@ -3227,34 +3249,41 @@ function openPaidDiscount() {
     '<div class="chips disc-pct" role="group" aria-label="Other percentage">' + std.map(function (d) {
       return '<button type="button" data-act="paid-disc" data-v="' + d + '"' + (!deal && pct === d ? ' class="on"' : '') + '>' + (d ? d + '%' : 'None') + '</button>';
     }).join('') + '</div>' +
-    '<label for="discountPct">Or type another %</label>' +
-    '<div class="split disc-apply"><input type="number" id="discountPct" inputmode="numeric" min="0" max="100" placeholder="0–100"' + (!deal && std.indexOf(pct) < 0 ? ' value="' + pct + '"' : '') + '>' +
+    '<label for="paidDiscPct">Or type another %</label>' +
+    '<div class="split disc-apply"><input type="number" id="paidDiscPct" inputmode="numeric" min="0" max="100" placeholder="0–100"' + (!deal && std.indexOf(pct) < 0 ? ' value="' + pct + '"' : '') + '>' +
     '<button type="button" class="btn primary" data-act="paid-disc-apply">Apply</button></div>' +
+    '<p class="deal-note">Tap a discount, then Apply to continue to print.</p>' +
     '<button type="button" class="btn quiet" data-act="close-modal">Cancel</button></div>', 'disc-modal');
+  var applyBtn = $('modalCard') && $('modalCard').querySelector('[data-act="paid-disc-apply"]');
+  if (applyBtn && applyBtn.focus) applyBtn.focus();
 }
 function paidDealPick(key) {
-  if (!paidAsk) return;
+  if (!paidAsk) { toast('Start again from Paid or Reprint'); return; }
   var k = String(key).split(':'), d = BANK_DEALS[+k[0]], c = d && d.cards[+k[1]];
   if (!d || c == null) return;
   paidAsk.deal = { bank: d.bank, card: c, pct: d.pct };
   paidAsk.pct = d.pct;
   paidAsk.method = 'Card';
-  finishPaidFromDisc();
+  openPaidDiscount();
 }
 function paidDiscPick(pct) {
-  if (!paidAsk) return;
+  if (!paidAsk) { toast('Start again from Paid or Reprint'); return; }
   paidAsk.deal = null;
   paidAsk.pct = Math.min(100, Math.max(0, num(pct)));
-  finishPaidFromDisc();
+  openPaidDiscount();
 }
 function paidDiscApplyCustom() {
-  if (!paidAsk || !$('discountPct')) return;
-  paidAsk.deal = null;
-  paidAsk.pct = Math.min(100, Math.max(0, num($('discountPct').value)));
+  if (!paidAsk) { toast('Start again from Paid or Reprint'); return; }
+  var box = $('paidDiscPct');
+  if (box && String(box.value).trim() !== '') {
+    paidAsk.deal = null;
+    paidAsk.pct = Math.min(100, Math.max(0, num(box.value)));
+  }
   finishPaidFromDisc();
 }
 function finishPaidFromDisc() {
-  if (!paidAsk || !paidAsk.method) return;
+  if (!paidAsk) { toast('Start again from Paid or Reprint'); return; }
+  if (!paidAsk.method) { toast('Pick Cash, Card or Transfer first'); return; }
   if (paidAsk.mode === 'pay') markPaid(paidAsk.id, paidAsk.method);
   else finishBillFromDisc();
 }
@@ -3273,6 +3302,8 @@ function finishBillFromDisc() {
   if (paidAsk.deal) o.deal = copy(paidAsk.deal);
   else if (o.deal && a.pct !== num(o.deal.pct)) delete o.deal;
   if (o.payment === 'Unpaid') {
+    o.payBy = method;
+    applyOrderTax(o);
     stamp(o);
     commit('orders', o.id);
     paidAsk = null;
@@ -3293,7 +3324,10 @@ function finishBillFromDisc() {
   toast('Customer bill reprinted · ' + method + (a.pct ? ' · ' + a.pct + '% off' : ''));
 }
 function markPaid(id, method) {
-  var o = findOrder(id); if (!o || o.payment !== 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
+  var o = findOrder(id);
+  if (!o) { toast('Order not found'); return; }
+  if (o.payment !== 'Unpaid') { toast('Order #' + pad(o.no) + ' is already paid'); return; }
+  if (['Cash', 'Card', 'Transfer'].indexOf(method) < 0) { toast('Pick Cash, Card or Transfer'); return; }
   if (paidAsk && paidAsk.id === id && paidAsk.deal) method = 'Card';
   if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
   var a = (paidAsk && paidAsk.id === id) ? paidAskAmount() : { pct: num(o.discountPct), disc: num(o.discount) };
