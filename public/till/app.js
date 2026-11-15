@@ -3224,6 +3224,32 @@ function paidAskAmount() {
   var pct = Math.min(100, Math.max(0, num(paidAsk.pct)));
   return { pct: pct, disc: Math.round(sale * pct / 100), sale: sale };
 }
+function paidAskDuePreview() {
+  var o = findOrder(paidAsk && paidAsk.id);
+  if (!o || !paidAsk) return { sale: 0, disc: 0, pct: 0, due: 0, method: 'Cash' };
+  var a = paidAskAmount();
+  var method = paidAsk.deal ? 'Card' : (paidAsk.method || orderPayMethod(o));
+  var due = TAX.enabled ? TAX.compute(o.items, a.disc, method).total : Math.max(0, a.sale - a.disc);
+  return { sale: a.sale, disc: a.disc, pct: a.pct, due: due, method: method };
+}
+function paidDiscPreviewHtml() {
+  var p = paidAskDuePreview();
+  var o = findOrder(paidAsk && paidAsk.id);
+  var was = p.sale;
+  if (o && TAX.enabled) was = TAX.compute(o.items, 0, p.method).total;
+  var sub = p.pct
+    ? (p.pct + '% off · bill was ' + n0(was))
+    : ('Bill ' + n0(was) + (p.method ? ' · ' + p.method : ''));
+  return '<div class="disc-preview" id="paidDiscPreview" role="status">' +
+    '<span class="disc-preview-l">Customer will pay</span>' +
+    '<b class="disc-preview-amt num">' + n0(p.due) + ' PKR</b>' +
+    '<span class="disc-preview-sub">' + esc(sub) + '</span>' +
+  '</div>';
+}
+function updatePaidDiscPreview() {
+  var el = $('paidDiscPreview'); if (!el || !paidAsk) return;
+  el.outerHTML = paidDiscPreviewHtml();
+}
 function renderPaidAsk() { if (paidAsk) askPayMethod(paidAsk.id, 'pay'); }
 function openPaidDiscount() {
   if (!paidAsk) return;
@@ -3252,8 +3278,18 @@ function openPaidDiscount() {
     '<label for="paidDiscPct">Or type another %</label>' +
     '<div class="split disc-apply"><input type="number" id="paidDiscPct" inputmode="numeric" min="0" max="100" placeholder="0–100"' + (!deal && std.indexOf(pct) < 0 ? ' value="' + pct + '"' : '') + '>' +
     '<button type="button" class="btn primary" data-act="paid-disc-apply">Apply</button></div>' +
+    paidDiscPreviewHtml() +
     '<p class="deal-note">Tap a discount, then Apply to continue to print.</p>' +
     '<button type="button" class="btn quiet" data-act="close-modal">Cancel</button></div>', 'disc-modal');
+  var box = $('paidDiscPct');
+  if (box) {
+    box.addEventListener('input', function () {
+      if (!paidAsk) return;
+      paidAsk.deal = null;
+      paidAsk.pct = Math.min(100, Math.max(0, num(box.value)));
+      updatePaidDiscPreview();
+    });
+  }
   var applyBtn = $('modalCard') && $('modalCard').querySelector('[data-act="paid-disc-apply"]');
   if (applyBtn && applyBtn.focus) applyBtn.focus();
 }

@@ -738,6 +738,14 @@ body.modal-open{overflow:hidden!important;touch-action:none}
 .chips.disc-pct button{min-height:40px;padding:6px 12px;font-size:14px}
 .disc-apply{grid-template-columns:1fr auto;align-items:stretch}
 .disc-apply .btn{min-height:48px;padding:0 18px}
+.disc-preview{
+  display:flex;flex-direction:column;align-items:center;gap:2px;
+  margin:4px 0 2px;padding:12px 14px;border-radius:16px;
+  background:var(--sky-wash);box-shadow:inset 0 0 0 1px var(--line);text-align:center
+}
+.disc-preview-l{font-size:13px;font-weight:700;color:var(--mocha);letter-spacing:.02em}
+.disc-preview-amt{font-size:28px;font-weight:800;line-height:1.15;color:var(--espresso)}
+.disc-preview-sub{font-size:12.5px;font-weight:600;color:var(--mocha);opacity:.9}
 .line-note{font-size:12.5px;font-style:italic;opacity:.85;margin-top:2px}
 .line-note-btn{background:none;border:0;padding:2px 0;font-size:11.5px;font-weight:600;text-decoration:underline;color:var(--mocha);opacity:.85;cursor:pointer}
 #orderNote{width:100%;min-height:44px}
