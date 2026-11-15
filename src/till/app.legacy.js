@@ -2831,8 +2831,8 @@ function askPayMethod(id, mode) {
   var hint = mode === 'pay'
     ? 'Tap a method, then choose any discount before the receipt prints'
     : (unpaid
-      ? 'Tap a method to print the customer bill. Order stays unpaid.'
-      : 'Tap a method to reprint the customer bill');
+      ? 'Tap a method, then choose any discount. Order stays unpaid until you mark paid.'
+      : 'Tap a method, then choose any discount before the bill prints');
   openModal(
     '<div class="paid-sheet">' +
       '<div class="paid-hero">' +
@@ -2859,35 +2859,20 @@ function askReprint(id) {
 }
 function payMethodBy(id, method, mode) {
   var o = findOrder(id); if (!o || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
-  /* Paid: method first, then discount modal, then print */
-  if (mode === 'pay') {
+  if (mode !== 'pay' && mode !== 'bill' && mode !== 'reprint') {
+    mode = o.payment === 'Unpaid' ? 'bill' : 'reprint';
+  }
+  /* Paid / Reprint: method → discount → print (unpaid reprint never marks paid) */
+  if (mode === 'pay' || mode === 'bill' || mode === 'reprint') {
     if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
     if (!paidAsk || paidAsk.id !== id) paidAsk = { id: id, pct: Math.min(100, Math.max(0, num(o.discountPct))) };
+    paidAsk.mode = mode;
     paidAsk.method = method;
     if (o.deal) { paidAsk.deal = copy(o.deal); paidAsk.pct = num(o.deal.pct); }
     else paidAsk.deal = null;
     openPaidDiscount();
     return;
   }
-  /* Reprint: customer bill for paid or unpaid — never mark unpaid as paid */
-  if (mode === 'bill' || mode === 'reprint' || o.payment === 'Unpaid') {
-    closeModal();
-    if (o.payment !== 'Unpaid' && o.payment !== method) {
-      if (o.deal && method !== 'Card') { toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card'); return; }
-      o.payment = method;
-      stamp(o);
-      commit('orders', o.id);
-      refreshAll();
-    }
-    printCustomerBill(o, method);
-    toast(o.payment === 'Unpaid'
-      ? ('Customer bill · ' + method + ' · still unpaid')
-      : ('Customer bill reprinted · ' + method));
-    return;
-  }
-  closeModal();
-  printCustomerBill(o, method);
-  toast('Customer bill reprinted · ' + method);
 }
 function reprintBy(id, method) { payMethodBy(id, method, 'reprint'); }
 function reslip(id) { var o = findOrder(id); if (o) printSlip(o); }
@@ -3270,7 +3255,42 @@ function paidDiscApplyCustom() {
 }
 function finishPaidFromDisc() {
   if (!paidAsk || !paidAsk.method) return;
-  markPaid(paidAsk.id, paidAsk.method);
+  if (paidAsk.mode === 'pay') markPaid(paidAsk.id, paidAsk.method);
+  else finishBillFromDisc();
+}
+function finishBillFromDisc() {
+  if (!paidAsk || !paidAsk.method) return;
+  var o = findOrder(paidAsk.id); if (!o) return;
+  var method = paidAsk.method;
+  if (paidAsk.deal) method = 'Card';
+  if (o.payment !== 'Unpaid' && o.deal && method !== 'Card') {
+    toast(o.deal.bank + ' card deal: order #' + pad(o.no) + ' can only be paid by card');
+    return;
+  }
+  var a = paidAskAmount();
+  o.discountPct = a.pct;
+  o.discount = a.disc;
+  if (paidAsk.deal) o.deal = copy(paidAsk.deal);
+  else if (o.deal && a.pct !== num(o.deal.pct)) delete o.deal;
+  if (o.payment === 'Unpaid') {
+    stamp(o);
+    commit('orders', o.id);
+    paidAsk = null;
+    closeModal();
+    refreshAll();
+    printCustomerBill(o, method);
+    toast('Customer bill · ' + method + (a.pct ? ' · ' + a.pct + '% off' : '') + ' · still unpaid');
+    return;
+  }
+  o.payment = method;
+  applyOrderTax(o);
+  stamp(o);
+  commit('orders', o.id);
+  paidAsk = null;
+  closeModal();
+  refreshAll();
+  printCustomerBill(o, method);
+  toast('Customer bill reprinted · ' + method + (a.pct ? ' · ' + a.pct + '% off' : ''));
 }
 function markPaid(id, method) {
   var o = findOrder(id); if (!o || o.payment !== 'Unpaid' || ['Cash', 'Card', 'Transfer'].indexOf(method) < 0) return;
