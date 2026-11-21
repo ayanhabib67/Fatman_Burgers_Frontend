@@ -71,6 +71,7 @@
       <button type="button" data-tab="orders">Orders <b id="tabUnpaid" class="tab-badge hidden">0</b></button>
       <button type="button" data-tab="till">Till</button>
       <button type="button" data-tab="kitchen" id="kdsTab" class="hidden">Kitchen <b id="kdsLate" class="tab-badge hidden">0</b></button>
+      <button type="button" data-tab="inventory" class="inv-tab">Inventory <b id="invLowB" class="tab-badge hidden">0</b></button>
     </nav>
     <div class="top-actions">
       <button type="button" class="btn quiet hidden" data-act="who" id="whoBtn">Who is on?</button>
@@ -232,6 +233,11 @@
     </div>
   </section>
 
+  <!-- INVENTORY (inventory.js, online only) -->
+  <section id="tabInventory" class="page hidden">
+    <div class="page-in" id="invRootB"></div>
+  </section>
+
   <!-- TILL -->
   <section id="tabTill" class="page hidden">
     <div class="page-in">
@@ -339,6 +345,7 @@
     <button type="button" data-otab="accounts">Accounts <b id="oTabOwed" class="tab-badge hidden">0</b></button>
     <button type="button" data-otab="days">Close day</button>
     <button type="button" data-otab="stock">Stock <b id="oTabLow" class="tab-badge hidden">0</b></button>
+    <button type="button" data-otab="inventory" class="inv-tab">Inventory <b id="invLowO" class="tab-badge hidden">0</b></button>
     <button type="button" data-otab="shelf" id="oTabShelfBtn">Shelf</button>
     <button type="button" data-otab="settings">Settings</button>
   </nav>
@@ -485,6 +492,8 @@
     <div id="recipeList" class="rows"></div>
    </div>
 
+   <div id="oInventory" class="hidden"></div>
+
    <div id="oShelf" class="hidden">
     <div class="drawer-card stock-card">
       <p class="drawer-l">The vendor shelf</p>
@@ -592,5 +601,6 @@
 <script src="/till/config.js"></script>
 <script src="/till/tax.js"></script>
 <script src="/till/app.js"></script>
+<script src="/till/inventory.js"></script>
 </body>
 </html>

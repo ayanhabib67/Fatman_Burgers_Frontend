@@ -838,7 +838,7 @@ function measureTop() {
 var lastFocus = null;
 function openModal(html, cardClass) {
   lastFocus = document.activeElement;
-  $('modalCard').classList.remove('chg-wide', 'disc-modal', 'paid-modal', 'remake-modal');
+  $('modalCard').classList.remove('chg-wide', 'disc-modal', 'paid-modal', 'remake-modal', 'inv-modal');
   if (cardClass) $('modalCard').classList.add(cardClass);
   $('modalCard').innerHTML = html;
   $('modal').classList.remove('hidden');
@@ -851,7 +851,7 @@ function closeModal() {
   if (chg) { chg.pendingCancel = null; chg.cancelPick = ''; }
   paidAsk = null;
   $('modal').classList.add('hidden'); $('modalCard').innerHTML = '';
-  $('modalCard').classList.remove('chg-wide', 'disc-modal', 'paid-modal', 'remake-modal');
+  $('modalCard').classList.remove('chg-wide', 'disc-modal', 'paid-modal', 'remake-modal', 'inv-modal');
   document.body.classList.remove('modal-open');
   if (lastFocus && lastFocus.focus) lastFocus.focus();
 }
@@ -1012,6 +1012,7 @@ function logout(msg) {
   if (CAMERAS) { basketPanel = false; basketData = { open: [], left: [] }; if ($('basketOwnerBack')) $('basketOwnerBack').classList.add('hidden'); renderBaskets(); }
   pin = ''; sessionPin = ''; setWho(''); ui.waiter = '';
   closeModal(); closeSheet();
+  if (window.FatInv) window.FatInv.reset();
   $('loginScreen').classList.remove('hidden');
   $('baristaScreen').classList.add('hidden');
   $('ownerScreen').classList.add('hidden');
@@ -2612,9 +2613,10 @@ function showOTab(t) {
   $('ownerScreen').setAttribute('data-otab', t);
   [].forEach.call($('oTabs').querySelectorAll('button'), function (b) { b.classList.toggle('on', b.getAttribute('data-otab') === t); });
   if (t === 'pass') renderPass(); if (t === 'settings') { renderStaff(); loadLog(); }
-  ['today', 'pass', 'accounts', 'days', 'stock', 'shelf', 'settings'].forEach(function (k) {
+  ['today', 'pass', 'accounts', 'days', 'stock', 'inventory', 'shelf', 'settings'].forEach(function (k) {
     var el = $('o' + k.charAt(0).toUpperCase() + k.slice(1)); if (el) el.classList.toggle('hidden', k !== t);
   });
+  if (t === 'inventory' && window.FatInv) window.FatInv.show($('oInventory'));
   window.scrollTo(0, 0);
 }
 
@@ -3674,6 +3676,8 @@ function showTab(t) {
   $('tabTill').classList.toggle('hidden', t !== 'till');
   if ($('tabKitchen')) $('tabKitchen').classList.toggle('hidden', t !== 'kitchen');
   if ($('tabChange')) $('tabChange').classList.toggle('hidden', t !== 'change');
+  if ($('tabInventory')) $('tabInventory').classList.toggle('hidden', t !== 'inventory');
+  if (t === 'inventory' && window.FatInv) window.FatInv.show($('invRootB'));
   if (t === 'till') renderTill();
   clearInterval(kdsTimer); kdsTimer = null;
   if (t === 'kitchen') {
@@ -4640,5 +4644,28 @@ function init() {
   }, 60000);
   loadMenuFromServer();
 }
+/* What the Inventory tab (inventory.js) borrows from the till. Inventory is online only: it calls the
+   server directly with this device's token and never goes through the outbox. */
+window.FATMAN_TILL = {
+  backend: BACKEND,
+  rpcBase: function () { return CFG.API_RPC_BASE || (API_URL + '/rest/v1/rpc'); },
+  headers: function () {
+    var h = { 'Content-Type': 'application/json', apikey: API_KEY };
+    if (/^eyJ/.test(API_KEY)) h.Authorization = 'Bearer ' + API_KEY;
+    return h;
+  },
+  token: token,
+  role: function () { return role; },
+  nowMs: nowMs,
+  esc: esc,
+  toast: toast,
+  openModal: function (html) { openModal(html, 'inv-modal'); },
+  closeModal: closeModal,
+  signedOut: function () {
+    var r = role;
+    if (r && auth && auth.roles[r]) { delete auth.roles[r]; saveAuth(); }
+    if (r) logout('This device was signed out. Enter the PIN again.');
+  }
+};
 init();
 })();
